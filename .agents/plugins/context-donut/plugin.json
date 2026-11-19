@@ -1,0 +1,12 @@
+{
+  "name": "context-donut",
+  "displayName": "Context Donut (上下文甜甜圈)",
+  "description": "像 Codex 一样在 Antigravity 对话框下方以 SVG 甜甜圈圆环形式实时展示上下文 Token 占用百分比、缓存命中率与 512k/1M 上限切换，并在每轮任务顶端实时读秒及显示任务总运行时长。",
+  "version": "1.2.0",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "打开上下文甜甜圈实时监控面板",
+    "查看当前会话的上下文 Token 占用与缓存命中率",
+    "将上下文甜甜圈挂载到对话框底部工具栏"
+  ]
+}

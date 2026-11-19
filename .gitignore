@@ -1,0 +1,36 @@
+# 本地运行数据与缓存（含个人画布数据与锁文件）
+canvas/
+*.lock
+
+# 仅本地保留的底层二进制补丁脚本（不纳入公开插件合集）
+scripts/zh-title-manager.mjs
+patch-zh-titles.cmd
+
+# 依赖与构建/日志产物
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# 环境变量与本地敏感凭据
+.env
+.env.*
+*.pem
+*.key
+
+# 备份与临时文件
+*.bak
+*.backup
+*.orig-backup
+*.donut-backup
+*.old-*
+*.running-*
+*.tmp
+
+# 操作系统与编辑器文件
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

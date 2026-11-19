@@ -1,0 +1,8 @@
+{
+  "name": "quota_pill",
+  "displayName": "Quota Pill Service",
+  "description": "本地配额数据桥接服务，监听 127.0.0.1:45790 为左下角额度按钮提供实时 GetUserStatus 数据。",
+  "entry": "server.mjs",
+  "runtime": "node",
+  "icon": "../../assets/logo.svg"
+}

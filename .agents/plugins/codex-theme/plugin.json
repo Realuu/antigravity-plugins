@@ -1,0 +1,8 @@
+{
+  "name": "codex-theme",
+  "version": "1.5.1",
+  "displayName": "Codex Aurora Theme (极光冰蓝 UI 主题)",
+  "description": "将 Antigravity 浅色模式下的顶部栏升级为 Codex 极光冰蓝实色渐变，左侧任务栏启用克制微透的 Windows Acrylic 亚克力玻璃效果，同时保持深色模式与内置浏览器完整兼容。",
+  "author": "Realuu",
+  "main": "bridge/electron-main-hook.cjs"
+}

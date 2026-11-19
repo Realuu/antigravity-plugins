@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WSL 终端</title>
+  <link rel="stylesheet" href="/vendor/xterm.css" />
+  <style>
+    :root {
+      --bg-canvas: #0b0f17;
+      --bg-bar: #111723;
+      --bg-tab: transparent;
+      --bg-tab-hover: rgba(148, 163, 184, 0.1);
+      --bg-tab-active: #1a2333;
+      --border-subtle: rgba(148, 163, 184, 0.16);
+      --text-primary: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --status-alive: #34d399;
+      --status-dead: #64748b;
+      --danger-hover: rgba(248, 113, 113, 0.2);
+      --danger-text: #fca5a5;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      user-select: none;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 紧凑顶栏：多标签 + 快捷操作 */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 36px;
+      min-height: 36px;
+      padding: 0 8px 0 6px;
+      background: var(--bg-bar);
+      border-bottom: 1px solid var(--border-subtle);
+      gap: 8px;
+    }
+
+    .tabs-strip {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex: 1;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tabs-strip::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 26px;
+      padding: 0 6px 0 9px;
+      border-radius: 6px;
+      background: var(--bg-tab);
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+      max-width: 150px;
+    }
+
+    .tab-item:hover {
+      background: var(--bg-tab-hover);
+      color: var(--text-primary);
+    }
+
+    .tab-item.active {
+      background: var(--bg-tab-active);
+      color: var(--text-primary);
+      border-color: rgba(56, 189, 248, 0.28);
+    }
+
+    .tab-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--status-alive);
+      flex-shrink: 0;
+    }
+    .tab-dot.exited {
+      background: var(--status-dead);
+    }
+
+    .tab-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+      font-size: 11.5px;
+    }
+
+    .tab-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0.65;
+      flex-shrink: 0;
+    }
+    .tab-close:hover {
+      opacity: 1;
+      background: var(--danger-hover);
+      color: var(--danger-text);
+    }
+
+    .btn-new-tab {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.14s ease;
+    }
+    .btn-new-tab:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: rgba(56, 189, 248, 0.25);
+    }
+
+    .actions-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-muted);
+      font-size: 11.5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.14s ease;
+    }
+    .action-btn:hover {
+      background: var(--accent-soft);
+      color: var(--text-primary);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    .action-btn code {
+      font-family: "Cascadia Mono", Consolas, monospace;
+      color: var(--accent);
+      font-size: 11.5px;
+    }
+    .action-btn.hidden {
+      display: none;
+    }
+
+    /* 终端画布区 */
+    .stage {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      padding: 6px 4px 4px 8px;
+      background: var(--bg-canvas);
+    }
+
+    .term-pane {
+      display: none;
+      width: 100%;
+      height: 100%;
+    }
+    .term-pane.active {
+      display: block;
+    }
+
+    /* 自定义滚动条质感 */
+    .xterm .xterm-viewport::-webkit-scrollbar {
+      width: 8px;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.22);
+      border-radius: 4px;
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.4);
+    }
+
+    /* 会话退出提示浮条 */
+    .exit-banner {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 10px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      border-radius: 7px;
+      background: rgba(22, 29, 43, 0.94);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      font-size: 12px;
+      color: var(--text-muted);
+      z-index: 20;
+      backdrop-filter: blur(6px);
+    }
+    .exit-banner.visible {
+      display: flex;
+    }
+    .exit-banner-btn {
+      padding: 3px 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+    .exit-banner-btn:hover {
+      background: rgba(56, 189, 248, 0.25);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="tabs-strip" id="tabsStrip">
+        <button class="btn-new-tab" id="btnNewTab" title="新建 WSL 终端标签页 (默认进入工作区目录)">+</button>
+      </div>
+      <div class="actions-group">
+        <button class="action-btn hidden" id="btnGoWorkspace" title="切换到当前工作区目录">工作区</button>
+        <button class="action-btn" id="btnGoHome" title="切换到 WSL 家目录 (~)"><code>~</code> 家目录</button>
+        <button class="action-btn" id="btnClear" title="清屏 (Ctrl+L)">清屏</button>
+      </div>
+    </header>
+
+    <main class="stage" id="termStage">
+      <div class="exit-banner" id="exitBanner">
+        <span id="exitBannerText">当前 WSL 会话已退出（按 Enter 或点击右侧按钮重开）</span>
+        <button class="exit-banner-btn" id="btnRestartTab">重新启动</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script>
+    (function () {
+      const querySuffix = window.location.search || '';
+      const tabsStrip = document.getElementById('tabsStrip');
+      const btnNewTab = document.getElementById('btnNewTab');
+      const btnGoWorkspace = document.getElementById('btnGoWorkspace');
+      const btnGoHome = document.getElementById('btnGoHome');
+      const btnClear = document.getElementById('btnClear');
+      const termStage = document.getElementById('termStage');
+      const exitBanner = document.getElementById('exitBanner');
+      const exitBannerText = document.getElementById('exitBannerText');
+      const btnRestartTab = document.getElementById('btnRestartTab');
+
+      const FitAddonCtor = (window.FitAddon && window.FitAddon.FitAddon) || window.FitAddon;
+
+      /** @type {Map<string, any>} */
+      const tabModels = new Map();
+      let activeTabId = null;
+      let currentWorkspaceWslPath = '';
+
+      function apiUrl(pathname, extraParams) {
+        const url = new URL(pathname + querySuffix, window.location.href);
+        if (extraParams) {
+          for (const [k, v] of Object.entries(extraParams)) {
+            url.searchParams.set(k, String(v));
+          }
+        }
+        return url.pathname + url.search;
+      }
+
+      function base64ToUint8Array(b64) {
+        const bin = atob(b64);
+        const len = bin.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = bin.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      function stringToBase64(str) {
+        const bytes = new TextEncoder().encode(str);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) {
+          bin += String.fromCharCode(bytes[i]);
+        }
+        return btoa(bin);
+      }
+
+      function shellSingleQuote(p) {
+        return "'" + String(p).replace(/'/g, "'\\''") + "'";
+      }
+
+      function updateWorkspaceButton(wslPath) {
+        if (wslPath) {
+          currentWorkspaceWslPath = wslPath;
+          btnGoWorkspace.classList.remove('hidden');
+          btnGoWorkspace.title = '切换到当前工作区映射目录: ' + wslPath;
+        } else {
+          btnGoWorkspace.classList.add('hidden');
+        }
+      }
+
+      function updateExitBanner() {
+        const active = activeTabId ? tabModels.get(activeTabId) : null;
+        if (active && !active.alive) {
+          exitBannerText.textContent =
+            '当前 WSL 会话已结束' +
+            (active.exitCode !== null && active.exitCode !== undefined ? ` (退出码 ${active.exitCode})` : '') +
+            ' · 按 Enter 或点击重开';
+          exitBanner.classList.add('visible');
+        } else {
+          exitBanner.classList.remove('visible');
+        }
+      }
+
+      function renderTabsBar() {
+        // 移除旧标签节点，保留末尾 + 按钮
+        for (const el of Array.from(tabsStrip.querySelectorAll('.tab-item'))) {
+          el.remove();
+        }
+
+        for (const model of tabModels.values()) {
+          const tabEl = document.createElement('div');
+          tabEl.className = 'tab-item' + (model.id === activeTabId ? ' active' : '');
+          tabEl.dataset.id = model.id;
+
+          const dot = document.createElement('span');
+          dot.className = 'tab-dot' + (model.alive ? '' : ' exited');
+
+          const titleSpan = document.createElement('span');
+          titleSpan.className = 'tab-title';
+          titleSpan.textContent = model.title || 'bash';
+
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'tab-close';
+          closeBtn.title = '关闭此终端标签';
+          closeBtn.textContent = '×';
+          closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            void closeTab(model.id);
+          });
+
+          tabEl.appendChild(dot);
+          tabEl.appendChild(titleSpan);
+          tabEl.appendChild(closeBtn);
+
+          tabEl.addEventListener('click', () => {
+            activateTab(model.id);
+          });
+
+          tabsStrip.insertBefore(tabEl, btnNewTab);
+        }
+        updateExitBanner();
+      }
+
+      // 严格保序的单飞输入发送队列
+      function enqueueInput(model, strData) {
+        if (!strData) return;
+        model.inputQueue.push(strData);
+        if (!model.flushingInput) {
+          void flushInputQueue(model);
+        }
+      }
+
+      async function flushInputQueue(model) {
+        model.flushingInput = true;
+        while (model.inputQueue.length > 0 && model.alive) {
+          const merged = model.inputQueue.join('');
+          model.inputQueue.length = 0;
+          try {
+            await fetch(apiUrl('/api/input'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: model.id,
+                dataB64: stringToBase64(merged),
+              }),
+            });
+          } catch {
+            break;
+          }
+        }
+        model.flushingInput = false;
+      }
+
+      async function syncResize(model) {
+        if (!model || !model.fitAddon || !model.paneEl.classList.contains('active')) return;
+        try {
+          model.fitAddon.fit();
+        } catch {
+          return;
+        }
+        const cols = model.term.cols;
+        const rows = model.term.rows;
+        if (!cols || !rows) return;
+        if (model.lastSentCols === cols && model.lastSentRows === rows) return;
+        model.lastSentCols = cols;
+        model.lastSentRows = rows;
+        if (!model.alive) return;
+
+        try {
+          await fetch(apiUrl('/api/resize'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: model.id, cols, rows }),
+          });
+        } catch {}
+      }
+
+      function estimateInitialDimensions() {
+        const rect = termStage.getBoundingClientRect();
+        const cols = Math.max(40, Math.floor((rect.width - 24) / 8.4));
+        const rows = Math.max(10, Math.floor((rect.height - 16) / 18));
+        return { cols, rows };
+      }
+
+      function createTerminalWidget(sessionMeta) {
+        const paneEl = document.createElement('div');
+        paneEl.className = 'term-pane';
+        termStage.appendChild(paneEl);
+
+        const term = new window.Terminal({
+          cursorBlink: true,
+          cursorStyle: 'block',
+          fontSize: 13,
+          lineHeight: 1.22,
+          fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace',
+          scrollback: 5000,
+          allowProposedApi: true,
+          macOptionIsMeta: true,
+          theme: {
+            background: '#0b0f17',
+            foreground: '#e2e8f0',
+            cursor: '#38bdf8',
+            cursorAccent: '#0b0f17',
+            selectionBackground: 'rgba(56, 189, 248, 0.28)',
+            black: '#1e293b',
+            red: '#f87171',
+            green: '#34d399',
+            yellow: '#fbbf24',
+            blue: '#60a5fa',
+            magenta: '#c084fc',
+            cyan: '#22d3ee',
+            white: '#e2e8f0',
+            brightBlack: '#64748b',
+            brightRed: '#fca5a5',
+            brightGreen: '#6ee7b7',
+            brightYellow: '#fde68a',
+            brightBlue: '#93c5fd',
+            brightMagenta: '#d8b4fe',
+            brightCyan: '#67e8f9',
+            brightWhite: '#f8fafc',
+          },
+        });
+
+        const fitAddon = FitAddonCtor ? new FitAddonCtor() : null;
+        if (fitAddon) {
+          term.loadAddon(fitAddon);
+        }
+        term.open(paneEl);
+
+        const model = {
+          id: sessionMeta.id,
+          title: sessionMeta.title || 'bash',
+          alive: sessionMeta.alive !== false,
+          exitCode: sessionMeta.exitCode ?? null,
+          term,
+          fitAddon,
+          paneEl,
+          inputQueue: [],
+          flushingInput: false,
+          streamAbort: null,
+          disposed: false,
+          lastSentCols: 0,
+          lastSentRows: 0,
+        };
+
+        // Windows Terminal 风格复制粘贴人体工学：
+        // - 有选中内容时按 Ctrl+C 自动复制并清除选区；无选区时发送 SIGINT (\x03)
+        // - Ctrl+Shift+C 复制，Ctrl+Shift+V / Ctrl+V 粘贴
+        term.attachCustomKeyEventHandler((ev) => {
+          if (ev.type !== 'keydown') return true;
+          const key = ev.key.toLowerCase();
+
+          if (ev.ctrlKey && ev.shiftKey && key === 'c') {
+            if (term.hasSelection()) {
+              navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
+            }
+            return false;
+          }
+
+          if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && key === 'c' && term.hasSelection()) {
+            navigator.clipboard?.writeText(term.getSelection()).catch(() => {});
+            term.clearSelection();
+            return false;
+          }
+
+          if (ev.ctrlKey && key === 'v') {
+            // 让浏览器原生 paste 事件触发 xterm 粘贴，若未触发则兜底读取 clipboard
+            return true;
+          }
+
+          return true;
+        });
+
+        // 右键快捷复制/粘贴：有选区则复制，无选区则粘贴
+        paneEl.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault();
+          if (term.hasSelection()) {
+            const sel = term.getSelection();
+            navigator.clipboard?.writeText(sel).catch(() => {});
+            term.clearSelection();
+          } else if (navigator.clipboard?.readText) {
+            navigator.clipboard
+              .readText()
+              .then((txt) => {
+                if (txt && model.alive) {
+                  term.paste(txt);
+                }
+              })
+              .catch(() => {});
+          }
+        });
+
+        term.onData((data) => {
+          if (!model.alive) {
+            if (data === '\r' || data === '\n') {
+              void restartCurrentTab(model.id);
+            }
+            return;
+          }
+          enqueueInput(model, data);
+        });
+
+        if (sessionMeta.workspaceWslPath) {
+          updateWorkspaceButton(sessionMeta.workspaceWslPath);
+        }
+
+        tabModels.set(model.id, model);
+        void connectSessionStream(model, true);
+        return model;
+      }
+
+      async function connectSessionStream(model, replay) {
+        if (model.disposed) return;
+        if (model.streamAbort) {
+          model.streamAbort.abort();
+        }
+        const abortCtrl = new AbortController();
+        model.streamAbort = abortCtrl;
+
+        try {
+          const resp = await fetch(
+            apiUrl('/api/stream', { id: model.id, replay: replay ? '1' : '0' }),
+            {
+              method: 'GET',
+              headers: { Accept: 'text/event-stream' },
+              signal: abortCtrl.signal,
+            }
+          );
+
+          if (!resp.ok || !resp.body) {
+            return;
+          }
+
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (!model.disposed) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let sepIdx;
+            while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+              const rawEvent = buffer.slice(0, sepIdx);
+              buffer = buffer.slice(sepIdx + 2);
+
+              for (const line of rawEvent.split('\n')) {
+                if (!line.startsWith('data:')) continue;
+                const jsonStr = line.slice(5).trim();
+                if (!jsonStr) continue;
+
+                let evt;
+                try {
+                  evt = JSON.parse(jsonStr);
+                } catch {
+                  continue;
+                }
+
+                if (evt.t === 'o' && evt.d) {
+                  model.term.write(base64ToUint8Array(evt.d));
+                } else if (evt.t === 'm') {
+                  if (evt.title) model.title = evt.title;
+                  if (typeof evt.alive === 'boolean') model.alive = evt.alive;
+                  if (evt.exitCode !== undefined) model.exitCode = evt.exitCode;
+                  if (evt.workspaceWslPath) updateWorkspaceButton(evt.workspaceWslPath);
+                  renderTabsBar();
+                } else if (evt.t === 'x') {
+                  model.alive = false;
+                  model.exitCode = evt.code ?? 0;
+                  renderTabsBar();
+                } else if (evt.t === 'closed') {
+                  model.disposed = true;
+                  return;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          if (abortCtrl.signal.aborted || model.disposed) return;
+        }
+
+        // 若面板仍处于打开态而长连接意外断开，1.2 秒后静默增量重连（不重复回放）
+        if (!model.disposed && model.alive) {
+          setTimeout(() => {
+            if (!model.disposed && model.alive) {
+              void connectSessionStream(model, false);
+            }
+          }, 1200);
+        }
+      }
+
+      function activateTab(id) {
+        if (!tabModels.has(id)) return;
+        activeTabId = id;
+        for (const [tid, m] of tabModels.entries()) {
+          if (tid === id) {
+            m.paneEl.classList.add('active');
+          } else {
+            m.paneEl.classList.remove('active');
+          }
+        }
+        renderTabsBar();
+        const active = tabModels.get(id);
+        requestAnimationFrame(() => {
+          void syncResize(active);
+          active.term.focus();
+        });
+      }
+
+      async function spawnNewTab() {
+        const dims = estimateInitialDimensions();
+        try {
+          const resp = await fetch(apiUrl('/api/sessions'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cols: dims.cols, rows: dims.rows }),
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (data && data.session) {
+            const model = createTerminalWidget(data.session);
+            activateTab(model.id);
+          }
+        } catch {}
+      }
+
+      async function closeTab(id) {
+        const model = tabModels.get(id);
+        if (!model) return;
+        model.disposed = true;
+        if (model.streamAbort) {
+          model.streamAbort.abort();
+        }
+        try {
+          model.term.dispose();
+        } catch {}
+        model.paneEl.remove();
+        tabModels.delete(id);
+
+        try {
+          await fetch(apiUrl('/api/sessions/close'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+        } catch {}
+
+        if (tabModels.size === 0) {
+          activeTabId = null;
+          renderTabsBar();
+          await spawnNewTab();
+          return;
+        }
+
+        if (activeTabId === id) {
+          const remainingIds = Array.from(tabModels.keys());
+          activateTab(remainingIds[remainingIds.length - 1]);
+        } else {
+          renderTabsBar();
+        }
+      }
+
+      async function restartCurrentTab(oldId) {
+        const oldModel = tabModels.get(oldId);
+        if (!oldModel) return;
+        await spawnNewTab();
+        // 移除旧已退出标签
+        oldModel.disposed = true;
+        oldModel.streamAbort?.abort();
+        try {
+          oldModel.term.dispose();
+        } catch {}
+        oldModel.paneEl.remove();
+        tabModels.delete(oldId);
+        fetch(apiUrl('/api/sessions/close'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: oldId }),
+        }).catch(() => {});
+        renderTabsBar();
+      }
+
+      // 顶栏按钮绑定
+      btnNewTab.addEventListener('click', () => {
+        void spawnNewTab();
+      });
+
+      btnGoHome.addEventListener('click', () => {
+        const active = activeTabId ? tabModels.get(activeTabId) : null;
+        if (!active || !active.alive) return;
+        enqueueInput(active, '\x15cd ~\r');
+        active.term.focus();
+      });
+
+      btnGoWorkspace.addEventListener('click', () => {
+        const active = activeTabId ? tabModels.get(activeTabId) : null;
+        if (!active || !active.alive || !currentWorkspaceWslPath) return;
+        enqueueInput(active, `\x15cd ${shellSingleQuote(currentWorkspaceWslPath)}\r`);
+        active.term.focus();
+      });
+
+      btnClear.addEventListener('click', () => {
+        const active = activeTabId ? tabModels.get(activeTabId) : null;
+        if (!active) return;
+        active.term.clear();
+        fetch(apiUrl('/api/clear-scrollback'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: active.id }),
+        }).catch(() => {});
+        if (active.alive) {
+          enqueueInput(active, '\x0c');
+        }
+        active.term.focus();
+      });
+
+      btnRestartTab.addEventListener('click', () => {
+        if (activeTabId) {
+          void restartCurrentTab(activeTabId);
+        }
+      });
+
+      // 自适应窗口缩放
+      let resizeTimer = null;
+      const ro = new ResizeObserver(() => {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          const active = activeTabId ? tabModels.get(activeTabId) : null;
+          if (active) {
+            void syncResize(active);
+          }
+        }, 55);
+      });
+      ro.observe(termStage);
+
+      // 初始化：恢复后台已存在的会话，若无会话则默认在当前工作区映射目录创建一个
+      async function bootstrap() {
+        try {
+          const resp = await fetch(apiUrl('/api/sessions'));
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.workspaceWslPath) {
+              updateWorkspaceButton(data.workspaceWslPath);
+            }
+            const existing = Array.isArray(data.sessions) ? data.sessions : [];
+            if (existing.length > 0) {
+              for (const s of existing) {
+                createTerminalWidget(s);
+              }
+              activateTab(existing[existing.length - 1].id);
+              return;
+            }
+          }
+        } catch {}
+
+        await spawnNewTab();
+      }
+
+      void bootstrap();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "wsl-terminal",
+  "displayName": "WSL 终端",
+  "description": "在 Antigravity 右侧辅助面板打开原生交互式 WSL Linux 终端，支持多标签页管理、当前工作区目录自动映射 (/mnt/...)、一键切回 ~ 家目录及后台会话保持。",
+  "version": "1.0.0",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "在右侧打开 WSL 终端面板",
+    "查看当前运行的 WSL 终端会话状态",
+    "打开 WSL 终端并进入当前工作区目录"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "cowart-sidebar",
+  "displayName": "Cowart 侧栏入口",
+  "version": "1.0.0",
+  "description": "在 Antigravity 左侧任务栏「自动化」下方挂载独立 Cowart 入口，提供全屏画布 + 底部悬浮提问胶囊，提问后自动切换为左侧主画布 + 右侧窄聊天栏同屏分栏。",
+  "author": "Realuu",
+  "main": "bridge/electron-main-hook.cjs"
+}

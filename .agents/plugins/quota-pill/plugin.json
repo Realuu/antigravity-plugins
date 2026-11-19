@@ -1,0 +1,11 @@
+{
+  "name": "quota-pill",
+  "displayName": "Quota Pill (左下角额度显示)",
+  "description": "在 Antigravity 左下角展示 Codex 风格上下双圆弧额度组件（5 小时额度 + 周额度），支持 Windows 本地模式与 WSL 模式无缝切换。",
+  "version": "1.3.0",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "查看当前 Antigravity 账号剩余额度",
+    "检查左下角额度插件在 Windows 与 WSL 下的状态"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "notion-sidebar",
+  "displayName": "Notion 独立入口",
+  "version": "1.0.0",
+  "description": "在 Antigravity 左侧任务栏挂载独立的 Notion 笔记入口，支持全屏浏览与轻量编辑工作区页面、按 / 插入区块，并在笔记下方悬浮提问自动切分右侧原生对话分栏。",
+  "author": "Realuu",
+  "logo": "assets/sidebar-icon.svg",
+  "keywords": ["notion", "sidebar", "notes", "workbench", "antigravity"]
+}

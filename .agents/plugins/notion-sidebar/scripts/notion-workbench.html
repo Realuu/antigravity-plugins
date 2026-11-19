@@ -1,0 +1,4157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Notion 工作台</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-subtle: #f7f7f6;
+    --bg-card: #ffffff;
+    --bg-card-hover: #fafafa;
+    --bg-code: #f7f6f3;
+    --bg-callout: #f1f1ef;
+    --border: rgba(15, 23, 42, 0.08);
+    --border-strong: rgba(15, 23, 42, 0.14);
+    --text: #1f2328;
+    --text-secondary: #57606a;
+    --text-muted: #8b949e;
+    --accent: #2383e2;
+    --accent-hover: #1b6fc4;
+    --shadow-card: 0 2px 10px -2px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.03);
+    --shadow-pop: 0 12px 32px -8px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(15, 23, 42, 0.06);
+    --code-comment: #6e7781;
+    --code-keyword: #cf222e;
+    --code-fn: #0550ae;
+    --code-string: #0a3069;
+    --code-number: #8250df;
+    --code-builtin: #953800;
+  }
+
+  html[data-theme="dark"] {
+    --bg: #191919;
+    --bg-subtle: #202022;
+    --bg-card: #222326;
+    --bg-card-hover: #292a2f;
+    --bg-code: #24252a;
+    --bg-callout: #25262b;
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text: #eceef1;
+    --text-secondary: #a1a8b3;
+    --text-muted: #737b87;
+    --accent: #3b8eea;
+    --accent-hover: #539ef0;
+    --shadow-card: 0 2px 10px -2px rgba(0, 0, 0, 0.35);
+    --shadow-pop: 0 16px 36px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    --code-comment: #8b949e;
+    --code-keyword: #ff7b72;
+    --code-fn: #79c0ff;
+    --code-string: #a5d6ff;
+    --code-number: #d2a8ff;
+    --code-builtin: #ffa657;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  button, input, textarea {
+    font-family: inherit;
+    color: inherit;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  /* 分栏态第 1 层品牌顶条（与右侧对话标签栏 42px 等高通栏对齐，复刻 Codex 图 1） */
+  .brand-strip {
+    height: 42px;
+    flex: 0 0 42px;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    z-index: 21;
+    user-select: none;
+  }
+  .brand-strip.is-visible {
+    display: flex;
+  }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  .brand-logo-box {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+  }
+
+  /* 第 2 层页面面包屑与操作栏（无底边框，清爽通透） */
+  .topbar {
+    height: 46px;
+    flex: 0 0 46px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 46px 0 18px;
+    border-bottom: 1px solid transparent;
+    background: var(--bg);
+    z-index: 20;
+    transition: padding-right 0.15s ease;
+  }
+  .topbar.is-split {
+    padding-right: 18px;
+  }
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 0%;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .ws-badge {
+    width: 19px;
+    height: 19px;
+    border-radius: 4px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .crumb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 0;
+    flex: 0 1 auto;
+    max-width: 175px;
+    overflow: hidden;
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+  .crumb-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text);
+  }
+  .crumb-btn.is-static {
+    cursor: default;
+    color: var(--text-secondary);
+  }
+  .crumb-btn.is-static:hover {
+    background: transparent;
+  }
+  .crumb-btn.is-current {
+    font-weight: 500;
+    color: var(--text);
+    max-width: 240px;
+    flex-shrink: 2;
+  }
+  .crumb-icon {
+    font-size: 14px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .crumb-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .crumb-sep {
+    color: var(--text-muted);
+    opacity: 0.55;
+    font-size: 13px;
+    user-select: none;
+    flex-shrink: 0;
+    padding: 0 1px;
+  }
+  .privacy-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .icon-btn {
+    height: 30px;
+    min-width: 30px;
+    padding: 0 7px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+  .icon-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text);
+  }
+  .icon-btn.is-active {
+    background: var(--bg-subtle);
+    border-color: var(--border);
+    color: var(--text);
+  }
+
+  .notion-open-btn {
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+  .notion-open-btn:hover {
+    background: var(--bg-subtle);
+  }
+
+  .sync-pill {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    display: none;
+  }
+  .sync-pill.is-visible {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 主滚动区 */
+  .main-scroll {
+    flex: 1 1 0%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+  }
+  .main-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  .main-scroll::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.24);
+    border-radius: 999px;
+  }
+  .main-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(128, 128, 128, 0.38);
+  }
+
+  /* 授权引导页 */
+  .auth-view {
+    min-height: calc(100vh - 80px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px;
+  }
+  .auth-card {
+    width: min(440px, 100%);
+    padding: 36px 32px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    text-align: center;
+  }
+  .auth-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    margin: 0 auto 18px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+  }
+  .auth-card h1 {
+    margin: 0 0 10px;
+    font-size: 21px;
+    font-weight: 650;
+  }
+  .auth-card p {
+    margin: 0 0 24px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+  .primary-btn {
+    height: 40px;
+    padding: 0 22px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 0.14s ease, transform 0.1s ease;
+  }
+  .primary-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .primary-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .primary-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+  .auth-status {
+    margin-top: 16px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    min-height: 20px;
+  }
+  .auth-link-fallback {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    display: none;
+  }
+
+  /* 首页视图（对齐截图 1） */
+  .home-wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 58px 28px 80px;
+  }
+  .greeting {
+    text-align: center;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 26px;
+    color: var(--text);
+  }
+  .search-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    max-width: 620px;
+    margin: 0 auto 54px;
+    position: relative;
+  }
+  .search-pill {
+    flex: 1;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    box-shadow: 0 2px 10px -3px rgba(15, 23, 42, 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .search-pill:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.14);
+  }
+  .search-pill svg {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .search-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 14px;
+    color: var(--text);
+    min-width: 0;
+  }
+  .search-input::placeholder {
+    color: var(--text-muted);
+  }
+  .search-clear {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 2px;
+    display: none;
+  }
+  .search-clear.is-visible {
+    display: inline-flex;
+  }
+  .new-page-btn {
+    height: 44px;
+    padding: 0 20px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.14s ease, transform 0.1s ease;
+  }
+  .new-page-btn:hover {
+    background: var(--accent-hover);
+  }
+  .new-page-btn:active {
+    transform: scale(0.98);
+  }
+
+  /* 搜索结果列表 */
+  .search-results-box {
+    max-width: 720px;
+    margin: -34px auto 40px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .search-results-head {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .search-result-row {
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    padding: 12px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.12s ease;
+  }
+  .search-result-row:last-child {
+    border-bottom: none;
+  }
+  .search-result-row:hover {
+    background: var(--bg-subtle);
+  }
+  .sr-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+  .sr-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .sr-title {
+    font-size: 14px;
+    font-weight: 550;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sr-path {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .sr-highlight {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.45;
+  }
+
+  /* 最近访问卡片区 */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .section-link {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .section-link:hover {
+    background: var(--bg-subtle);
+    color: var(--text);
+  }
+
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+    gap: 14px;
+  }
+  .page-card {
+    height: 148px;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, background-color 0.14s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .page-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 36px;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.024) 0%, transparent 100%);
+    pointer-events: none;
+  }
+  html[data-theme="dark"] .page-card::before {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, transparent 100%);
+  }
+  .page-card:hover {
+    transform: translateY(-2px);
+    background: var(--bg-card-hover);
+    border-color: var(--border-strong);
+    box-shadow: 0 8px 20px -8px rgba(15, 23, 42, 0.12);
+  }
+  .card-icon {
+    font-size: 22px;
+    line-height: 1;
+    color: var(--text-muted);
+    height: 26px;
+    display: flex;
+    align-items: center;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 550;
+    color: var(--text);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    margin-top: 8px;
+  }
+  .card-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: auto;
+    padding-top: 8px;
+  }
+  .card-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .card-meta-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 查看全部视图 */
+  .all-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+  .tab-pill {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab-pill:hover {
+    background: var(--bg-subtle);
+    color: var(--text);
+  }
+  .tab-pill.is-active {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+    font-weight: 500;
+  }
+
+  /* 笔记详情视图（对齐截图 2） */
+  .page-cover {
+    width: 100%;
+    height: 180px;
+    object-fit: cover;
+    display: block;
+    border-bottom: 1px solid var(--border);
+  }
+  .doc-container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 38px 42px 220px;
+  }
+  .doc-container.is-full-width {
+    max-width: 1080px;
+  }
+  .doc-header-zone {
+    margin-bottom: 22px;
+  }
+  .doc-hero-icon {
+    font-size: 62px;
+    line-height: 1.08;
+    margin-bottom: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 12px;
+    padding: 4px;
+    margin-left: -4px;
+    transition: background-color 0.14s ease, transform 0.14s ease;
+  }
+  .doc-hero-icon:hover {
+    background: var(--bg-subtle);
+  }
+  .doc-hero-icon img {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    object-fit: cover;
+    display: block;
+  }
+  .doc-quick-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+  .doc-header-zone:hover .doc-quick-bar,
+  .doc-quick-bar:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .doc-quick-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .doc-quick-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+  }
+
+  .doc-title-row {
+    display: flex;
+    align-items: flex-start;
+  }
+  .doc-title-input {
+    flex: 1;
+    font-size: 36px;
+    font-weight: 750;
+    line-height: 1.22;
+    letter-spacing: -0.022em;
+    color: var(--text);
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 2px 4px;
+    margin: 0 -4px;
+    border-radius: 8px;
+    word-break: break-word;
+  }
+  .doc-title-input:focus {
+    background: var(--bg-subtle);
+  }
+
+  /* 块级渲染样式 */
+  .doc-blocks {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 15px;
+    line-height: 1.72;
+  }
+  .block-item {
+    position: relative;
+    border-radius: 8px;
+    transition: background-color 0.12s ease;
+  }
+  .block-item.is-editable:hover {
+    background: rgba(128, 128, 128, 0.045);
+  }
+  .block-actions {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    z-index: 4;
+  }
+  .block-item:hover .block-actions {
+    opacity: 1;
+  }
+  .mini-chip-btn {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .mini-chip-btn:hover {
+    background: var(--bg-subtle);
+    color: var(--text);
+  }
+
+  .blk-h1 { font-size: 26px; font-weight: 700; line-height: 1.35; margin: 18px 0 4px; padding: 2px 4px; }
+  .blk-h2 { font-size: 21px; font-weight: 660; line-height: 1.38; margin: 14px 0 2px; padding: 2px 4px; }
+  .blk-h3 { font-size: 17px; font-weight: 640; line-height: 1.42; margin: 10px 0 2px; padding: 2px 4px; }
+  .blk-h4 { font-size: 15.5px; font-weight: 630; line-height: 1.45; margin: 8px 0 2px; padding: 2px 4px; }
+  .blk-p { padding: 2px 4px; white-space: pre-wrap; word-break: break-word; }
+
+  /* Notion 10 色文本与背景色 */
+  .nc-gray { color: #787774; }
+  .nc-brown { color: #9f6b53; }
+  .nc-orange { color: #d9730d; }
+  .nc-yellow { color: #cb912f; }
+  .nc-green { color: #448361; }
+  .nc-blue { color: #337ea9; }
+  .nc-purple { color: #9065b0; }
+  .nc-pink { color: #c14c8a; }
+  .nc-red { color: #d44c47; }
+  .nc-gray_bg { background: #f1f1ef; border-radius: 5px; padding: 1px 4px; }
+  .nc-brown_bg { background: #f4eeee; border-radius: 5px; padding: 1px 4px; }
+  .nc-orange_bg { background: #fbecdd; border-radius: 5px; padding: 1px 4px; }
+  .nc-yellow_bg { background: #fbf3db; border-radius: 5px; padding: 1px 4px; }
+  .nc-green_bg { background: #edf3ec; border-radius: 5px; padding: 1px 4px; }
+  .nc-blue_bg { background: #e7f3f8; border-radius: 5px; padding: 1px 4px; }
+  .nc-purple_bg { background: #f6f3f9; border-radius: 5px; padding: 1px 4px; }
+  .nc-pink_bg { background: #faf1f5; border-radius: 5px; padding: 1px 4px; }
+  .nc-red_bg { background: #fdebec; border-radius: 5px; padding: 1px 4px; }
+  html[data-theme="dark"] .nc-gray { color: #9b9b9b; }
+  html[data-theme="dark"] .nc-brown { color: #ba856f; }
+  html[data-theme="dark"] .nc-orange { color: #c77d48; }
+  html[data-theme="dark"] .nc-yellow { color: #ca9849; }
+  html[data-theme="dark"] .nc-green { color: #529e72; }
+  html[data-theme="dark"] .nc-blue { color: #5e87c9; }
+  html[data-theme="dark"] .nc-purple { color: #9d68d3; }
+  html[data-theme="dark"] .nc-pink { color: #d15796; }
+  html[data-theme="dark"] .nc-red { color: #df5452; }
+  html[data-theme="dark"] .nc-gray_bg { background: rgba(155, 155, 155, 0.16); }
+  html[data-theme="dark"] .nc-brown_bg { background: rgba(186, 133, 111, 0.18); }
+  html[data-theme="dark"] .nc-orange_bg { background: rgba(199, 125, 72, 0.2); }
+  html[data-theme="dark"] .nc-yellow_bg { background: rgba(202, 152, 73, 0.2); }
+  html[data-theme="dark"] .nc-green_bg { background: rgba(82, 158, 114, 0.2); }
+  html[data-theme="dark"] .nc-blue_bg { background: rgba(94, 135, 201, 0.2); }
+  html[data-theme="dark"] .nc-purple_bg { background: rgba(157, 104, 211, 0.2); }
+  html[data-theme="dark"] .nc-pink_bg { background: rgba(209, 87, 150, 0.2); }
+  html[data-theme="dark"] .nc-red_bg { background: rgba(223, 84, 82, 0.2); }
+
+  .notion-date-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.92em;
+    vertical-align: baseline;
+  }
+  .notion-mention-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 5px;
+    border-radius: 5px;
+    background: var(--bg-subtle);
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border-strong);
+    cursor: pointer;
+  }
+  .notion-mention-pill:hover {
+    background: var(--bg-callout);
+  }
+  .blk-equation {
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    text-align: center;
+    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+    font-size: 16px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  .blk-img-figure {
+    margin: 6px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .blk-img {
+    max-width: 100%;
+    max-height: 540px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+    cursor: zoom-in;
+    background: var(--bg-subtle);
+  }
+  .blk-img-caption {
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .blk-media-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-subtle);
+    text-decoration: none;
+    color: var(--text);
+    font-size: 13.5px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+  }
+  .blk-media-card:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-card-hover);
+  }
+  .blk-columns {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .blk-column {
+    flex: 1 1 0%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .blk-synced {
+    border-left: 2px solid rgba(229, 72, 77, 0.45);
+    padding-left: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .blk-toc {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .blk-toc-link {
+    border: none;
+    background: transparent;
+    text-align: left;
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 2px 4px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .blk-toc-link:hover {
+    color: var(--text);
+  }
+  .lightbox-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.78);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 120;
+    padding: 24px;
+    cursor: zoom-out;
+  }
+  .lightbox-backdrop.is-open {
+    display: flex;
+  }
+  .lightbox-backdrop img {
+    max-width: 94vw;
+    max-height: 90vh;
+    border-radius: 10px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  .blk-code-wrap {
+    border-radius: 12px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 18px 20px;
+    position: relative;
+    overflow-x: auto;
+  }
+  .blk-code-lang {
+    position: absolute;
+    top: 8px;
+    left: 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: lowercase;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+  .blk-code-wrap:hover .blk-code-lang {
+    opacity: 0.9;
+  }
+  .blk-code-pre {
+    margin: 0;
+    font-family: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    tab-size: 4;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .tok-comment { color: var(--code-comment); }
+  .tok-keyword { color: var(--code-keyword); font-weight: 500; }
+  .tok-fn { color: var(--code-fn); }
+  .tok-string { color: var(--code-string); }
+  .tok-number { color: var(--code-number); }
+  .tok-builtin { color: var(--code-builtin); }
+
+  .blk-todo {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px 6px;
+  }
+  .blk-todo input[type="checkbox"] {
+    margin-top: 5px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .blk-todo.is-checked .blk-todo-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+  }
+  .blk-todo-text {
+    flex: 1;
+    word-break: break-word;
+  }
+
+  .blk-list-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 2px 6px;
+  }
+  .blk-list-marker {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    min-width: 16px;
+    text-align: center;
+    user-select: none;
+  }
+
+  .blk-quote {
+    border-left: 3px solid var(--text);
+    padding: 4px 14px;
+    margin: 4px 0;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+  }
+
+  .blk-callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--bg-callout);
+    border: 1px solid var(--border);
+  }
+  .blk-callout.nc-gray_bg, .blk-quote.nc-gray_bg { background: #f1f1ef; }
+  .blk-callout.nc-brown_bg, .blk-quote.nc-brown_bg { background: #f4eeee; }
+  .blk-callout.nc-orange_bg, .blk-quote.nc-orange_bg { background: #fbecdd; }
+  .blk-callout.nc-yellow_bg, .blk-quote.nc-yellow_bg { background: #fbf3db; }
+  .blk-callout.nc-green_bg, .blk-quote.nc-green_bg { background: #edf3ec; }
+  .blk-callout.nc-blue_bg, .blk-quote.nc-blue_bg { background: #e7f3f8; }
+  .blk-callout.nc-purple_bg, .blk-quote.nc-purple_bg { background: #f6f3f9; }
+  .blk-callout.nc-pink_bg, .blk-quote.nc-pink_bg { background: #faf1f5; }
+  .blk-callout.nc-red_bg, .blk-quote.nc-red_bg { background: #fdebec; }
+  html[data-theme="dark"] .blk-callout.nc-gray_bg, html[data-theme="dark"] .blk-quote.nc-gray_bg { background: rgba(155, 155, 155, 0.16); }
+  html[data-theme="dark"] .blk-callout.nc-brown_bg, html[data-theme="dark"] .blk-quote.nc-brown_bg { background: rgba(186, 133, 111, 0.18); }
+  html[data-theme="dark"] .blk-callout.nc-orange_bg, html[data-theme="dark"] .blk-quote.nc-orange_bg { background: rgba(199, 125, 72, 0.2); }
+  html[data-theme="dark"] .blk-callout.nc-yellow_bg, html[data-theme="dark"] .blk-quote.nc-yellow_bg { background: rgba(202, 152, 73, 0.2); }
+  html[data-theme="dark"] .blk-callout.nc-green_bg, html[data-theme="dark"] .blk-quote.nc-green_bg { background: rgba(82, 158, 114, 0.2); }
+  html[data-theme="dark"] .blk-callout.nc-blue_bg, html[data-theme="dark"] .blk-quote.nc-blue_bg { background: rgba(94, 135, 201, 0.18); }
+  html[data-theme="dark"] .blk-callout.nc-purple_bg, html[data-theme="dark"] .blk-quote.nc-purple_bg { background: rgba(157, 104, 211, 0.2); }
+  html[data-theme="dark"] .blk-callout.nc-pink_bg, html[data-theme="dark"] .blk-quote.nc-pink_bg { background: rgba(209, 87, 150, 0.2); }
+  html[data-theme="dark"] .blk-callout.nc-red_bg, html[data-theme="dark"] .blk-quote.nc-red_bg { background: rgba(223, 84, 82, 0.2); }
+  .blk-callout-icon {
+    font-size: 18px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+
+  .blk-hr {
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    margin: 14px 0;
+  }
+
+  .blk-child-link {
+    width: calc(100% + 16px);
+    margin: 0 -8px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 15px;
+    color: var(--text);
+    transition: background-color 0.12s ease;
+  }
+  .blk-child-link:hover {
+    background: var(--bg-subtle);
+  }
+  .blk-child-icon {
+    width: 20px;
+    height: 20px;
+    font-size: 17px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .blk-child-title {
+    border-bottom: 1px solid var(--border-strong);
+    padding-bottom: 1px;
+    font-weight: 450;
+  }
+  .blk-child-badge {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+
+  .blk-details {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 8px 12px;
+    background: var(--bg-subtle);
+  }
+  .blk-details summary {
+    cursor: pointer;
+    font-weight: 550;
+  }
+  .blk-details-body {
+    margin-top: 8px;
+    padding-left: 16px;
+    white-space: pre-wrap;
+    color: var(--text-secondary);
+  }
+
+  .blk-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .blk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .blk-table th, .blk-table td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .blk-table th {
+    background: var(--bg-subtle);
+    font-weight: 600;
+  }
+
+  .blk-img {
+    max-width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+
+  .inline-code {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 0.88em;
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: var(--bg-code);
+    color: #eb5757;
+  }
+  html[data-theme="dark"] .inline-code {
+    color: #ff8a8a;
+  }
+  .inline-link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .inline-math {
+    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-subtle);
+    font-size: 1.02em;
+  }
+  .math-frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    line-height: 1.1;
+    margin: 0 2px;
+    font-size: 0.88em;
+  }
+  .math-frac > span:first-child {
+    border-bottom: 1px solid currentColor;
+    padding: 0 3px 1px;
+  }
+  .math-frac > span:last-child {
+    padding: 1px 3px 0;
+  }
+
+  /* 行内块编辑器 */
+  .block-editor-box {
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    background: var(--bg-card);
+    padding: 10px 12px;
+    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.12);
+  }
+  .block-editor-textarea {
+    width: 100%;
+    min-height: 68px;
+    border: none;
+    outline: none;
+    resize: vertical;
+    background: transparent;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .block-editor-textarea.is-mono {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13px;
+  }
+  .block-editor-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+  .block-editor-btns {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* 源码整页编辑模式 */
+  .raw-editor-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .raw-editor-textarea {
+    width: 100%;
+    min-height: 420px;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-code);
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    outline: none;
+    resize: vertical;
+  }
+  .raw-editor-textarea:focus {
+    border-color: var(--accent);
+  }
+
+  /* 底部「按 / 插入区块」输入行（对齐截图 2） */
+  .slash-composer {
+    margin-top: 16px;
+    position: relative;
+  }
+  .slash-input {
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 15px;
+    line-height: 1.6;
+    padding: 6px 4px;
+    color: var(--text);
+  }
+  .slash-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.72;
+  }
+  .slash-menu {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 6px);
+    width: 280px;
+    max-height: 320px;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-pop);
+    padding: 6px;
+    z-index: 40;
+    display: none;
+  }
+  .slash-menu.is-open {
+    display: block;
+  }
+  .slash-menu-title {
+    padding: 4px 10px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .slash-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .slash-item:hover,
+  .slash-item.is-selected {
+    background: var(--bg-subtle);
+  }
+  .slash-item-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .slash-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .slash-item-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* 账号下拉菜单与新建页面弹窗 */
+  .popover-wrap { position: relative; }
+  .popover-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    width: 230px;
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-pop);
+    padding: 6px;
+    z-index: 50;
+    display: none;
+  }
+  .popover-menu.is-open { display: block; }
+  .popover-head {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+  .popover-name { font-size: 13px; font-weight: 600; }
+  .popover-email { font-size: 11.5px; color: var(--text-muted); word-break: break-all; margin-top: 2px; }
+  .popover-item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    border-radius: 7px;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .popover-item:hover { background: var(--bg-subtle); }
+  .popover-item.is-danger { color: #e5484d; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.36);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 80;
+    padding: 16px;
+  }
+  .modal-backdrop.is-open { display: flex; }
+  .modal-box {
+    width: min(440px, 100%);
+    border-radius: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-pop);
+    padding: 20px 22px;
+  }
+  .modal-title {
+    margin: 0 0 14px;
+    font-size: 16px;
+    font-weight: 650;
+  }
+  .field-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .field-input, .field-textarea {
+    width: 100%;
+    border-radius: 9px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    padding: 9px 12px;
+    font-size: 13.5px;
+    outline: none;
+    margin-bottom: 12px;
+  }
+  .field-input:focus, .field-textarea:focus {
+    border-color: var(--accent);
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .ghost-btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .ghost-btn:hover { background: var(--bg-subtle); color: var(--text); }
+  .solid-btn {
+    height: 34px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .solid-btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .solid-btn:disabled { opacity: 0.6; }
+
+  /* 轻提示与骨架屏 */
+  .toast {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #ffffff;
+    font-size: 12.5px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    z-index: 100;
+  }
+  html[data-theme="dark"] .toast {
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+  .toast.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .loading-center {
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 2.2px solid var(--border-strong);
+    border-top-color: var(--accent);
+    animation: spin 0.75s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="brand-strip" id="brandStrip">
+    <span class="brand-mark">
+      <span class="brand-logo-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3.8"/><path d="M8.5 16.5V7.7L15.4 16.3V7.5"/></svg>
+      </span>
+      <span>Notion</span>
+    </span>
+  </div>
+  <header class="topbar" id="topbar">
+    <div class="topbar-left" id="topbarLeft"></div>
+    <div class="topbar-right" id="topbarRight"></div>
+  </header>
+  <main class="main-scroll" id="mainScroll"></main>
+</div>
+
+<!-- 新建页面 / 插入代码弹窗 -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<!-- 图片点击放大灯箱 -->
+<div class="lightbox-backdrop" id="lightboxBackdrop">
+  <img id="lightboxImg" alt="预览图片" />
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const qs = new URLSearchParams(window.location.search);
+  const initialTheme = qs.get('theme') === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', initialTheme);
+
+  const NOTION_SVG_SMALL = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3.5"/><path d="M8.5 16.5V7.7L15.4 16.3V7.5"/></svg>`;
+  const DOC_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>`;
+  const DB_SVG = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>`;
+  const LINK_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+  const LOCK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+  const REFRESH_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`;
+  const BACK_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`;
+  const CLOCK_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>`;
+
+  const state = {
+    view: 'loading', // 'loading' | 'auth' | 'home' | 'all' | 'page'
+    layout: qs.get('layout') === 'split' ? 'split' : 'fullscreen',
+    connected: false,
+    workspace: null,
+    user: null,
+    recentPages: [],
+    privatePages: [],
+    favoritePages: [],
+    allTab: 'recent',
+    allResults: [],
+    allNextCursor: '',
+    searchQuery: '',
+    searchResults: null,
+    searchLoading: false,
+    currentPage: null,
+    pageHistory: [],
+    rawMode: false,
+    editingBlockIdx: -1,
+    syncText: '',
+    accountMenuOpen: false,
+    authPollTimer: null,
+    lastAuthUrl: '',
+    slashOpen: false,
+    slashSelectedIdx: 0,
+    slashFilter: '',
+  };
+
+  const SLASH_COMMANDS = [
+    { id: 'paragraph', icon: '¶', name: '文本段落', desc: '普通文本内容', prefix: '' },
+    { id: 'h1', icon: 'H1', name: '一级标题', desc: '大号章节标题', prefix: '# ' },
+    { id: 'h2', icon: 'H2', name: '二级标题', desc: '中号小节标题', prefix: '## ' },
+    { id: 'h3', icon: 'H3', name: '三级标题', desc: '小号子标题', prefix: '### ' },
+    { id: 'code', icon: '</>', name: '代码块', desc: '插入带语言高亮的代码片段', modal: 'code' },
+    { id: 'todo', icon: '☑', name: '待办事项', desc: '可勾选的复选任务项', prefix: '- [ ] ' },
+    { id: 'bullet', icon: '•', name: '无序列表', desc: '项目符号列表项', prefix: '- ' },
+    { id: 'numbered', icon: '1.', name: '有序列表', desc: '数字编号列表项', prefix: '1. ' },
+    { id: 'quote', icon: '❝', name: '引用块', desc: '强调摘录或批注', prefix: '> ' },
+    { id: 'callout', icon: '💡', name: '标注框 (Callout)', desc: '带图标的高亮提示框', modal: 'callout' },
+    { id: 'divider', icon: '—', name: '分割线', desc: '水平分隔线', instant: '---' },
+    { id: 'subpage', icon: '📄', name: '新建子页面', desc: '在当前笔记下创建新子页', modal: 'subpage' },
+  ];
+
+  const brandStrip = document.getElementById('brandStrip');
+  const topbar = document.getElementById('topbar');
+  const topbarLeft = document.getElementById('topbarLeft');
+  const topbarRight = document.getElementById('topbarRight');
+  const mainScroll = document.getElementById('mainScroll');
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const modalBox = document.getElementById('modalBox');
+  const toastEl = document.getElementById('toast');
+
+  let toastTimer = null;
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('is-visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 2200);
+  }
+
+  function postToHost(payload) {
+    try {
+      window.parent?.postMessage(payload, '*');
+    } catch {}
+  }
+
+  function notifyHostContext() {
+    const p = state.view === 'page' && state.currentPage ? state.currentPage : null;
+    postToHost({
+      type: 'AGY_NOTION_PAGE_CHANGE',
+      view: state.view,
+      workspace: state.workspace,
+      page: p
+        ? {
+            id: p.id,
+            title: p.title,
+            url: p.url,
+            path: p.path || (p.breadcrumbs || []).map((b) => b.title).join(' / '),
+            icon: p.icon,
+          }
+        : null,
+    });
+  }
+
+  function openExternalUrl(url) {
+    if (!url) return;
+    postToHost({ type: 'AGY_NOTION_OPEN_EXTERNAL', url });
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function getWorkspaceInitial() {
+    const name = String(state.workspace?.name || state.user?.name || 'N').trim();
+    return name ? name[0].toUpperCase() : 'N';
+  }
+
+  function getGreetingPrefix() {
+    const h = new Date().getHours();
+    if (h < 6) return '夜深了';
+    if (h < 11) return '上午好';
+    if (h < 14) return '中午好';
+    if (h < 18) return '下午好';
+    return '晚上好';
+  }
+
+  function formatRelativeTime(iso) {
+    if (!iso) return '最近访问';
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return '最近访问';
+    const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (diffSec < 60) return '刚刚';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}分钟前`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}小时前`;
+    const days = Math.floor(diffSec / 86400);
+    if (days < 14) return `${days}天前`;
+    if (days < 60) return `${Math.floor(days / 7)}周前`;
+    return `${Math.floor(days / 30)}个月前`;
+  }
+
+  function unwrapIconStr(icon) {
+    if (!icon) return '';
+    if (typeof icon === 'string') return icon.trim();
+    if (typeof icon === 'object') {
+      if (typeof icon.emoji === 'string' && icon.emoji.trim()) return icon.emoji.trim();
+      if (icon.external?.url) return String(icon.external.url).trim();
+      if (icon.file?.url) return String(icon.file.url).trim();
+      if (icon.custom_emoji?.url) return String(icon.custom_emoji.url).trim();
+      if (icon.url) return String(icon.url).trim();
+      if (icon.icon) return unwrapIconStr(icon.icon);
+    }
+    return '';
+  }
+
+  function renderIconBadge(icon, fallbackSvg) {
+    const str = unwrapIconStr(icon);
+    if (!str) return fallbackSvg;
+    if (/^https?:\/\//i.test(str)) {
+      return `<img src="${escapeHtml(str)}" alt="" style="width:20px;height:20px;border-radius:4px;object-fit:cover;" />`;
+    }
+    if (str.startsWith('icons/') || str.startsWith(':')) {
+      return fallbackSvg;
+    }
+    return `<span>${escapeHtml(str)}</span>`;
+  }
+
+  async function apiJson(url, opts = {}) {
+    const resp = await fetch(url, {
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      ...opts,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 401 || data.code === 'AUTH_REQUIRED') {
+      state.connected = false;
+      state.view = 'auth';
+      state.currentPage = null;
+      renderAll();
+      throw new Error(data.error || '需要先连接 Notion');
+    }
+    if (!resp.ok || data.ok === false) {
+      throw new Error(data.error || `请求失败 (${resp.status})`);
+    }
+    return data;
+  }
+
+  // --- 语法高亮器（轻量零依赖，覆盖 Python / JS / TS / Shell / JSON / C++） ---
+  function highlightCode(code, lang) {
+    const raw = String(code || '');
+    const l = String(lang || '').toLowerCase();
+    const keywords = new Set([
+      'def', 'class', 'return', 'import', 'from', 'as', 'for', 'in', 'if', 'elif', 'else',
+      'while', 'try', 'except', 'finally', 'with', 'lambda', 'yield', 'pass', 'break', 'continue',
+      'and', 'or', 'not', 'is', 'None', 'True', 'False', 'async', 'await',
+      'const', 'let', 'var', 'function', 'export', 'default', 'new', 'throw', 'catch', 'switch',
+      'case', 'typeof', 'interface', 'type', 'enum', 'struct', 'public', 'private', 'void', 'int',
+      'float', 'double', 'bool', 'string', 'SELECT', 'FROM', 'WHERE', 'JOIN', 'GROUP', 'ORDER', 'BY',
+    ]);
+    const builtins = new Set([
+      'print', 'len', 'range', 'enumerate', 'zip', 'map', 'filter', 'list', 'dict', 'set', 'tuple',
+      'str', 'int', 'float', 'sum', 'min', 'max', 'abs', 'open', 'super', 'console', 'Math', 'JSON',
+      'Array', 'Object', 'Promise', 'fetch',
+    ]);
+
+    const tokenRe = /(#[^\n]*|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_]*\b)/g;
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = tokenRe.exec(raw)) !== null) {
+      if (m.index > last) out += escapeHtml(raw.slice(last, m.index));
+      const tok = m[0];
+      if (
+        (tok.startsWith('#') && (l === '' || l === 'py' || l === 'python' || l === 'bash' || l === 'sh' || l === 'yaml' || l === 'yml')) ||
+        tok.startsWith('//') ||
+        tok.startsWith('/*')
+      ) {
+        out += `<span class="tok-comment">${escapeHtml(tok)}</span>`;
+      } else if (tok.startsWith('"') || tok.startsWith("'") || tok.startsWith('`')) {
+        out += `<span class="tok-string">${escapeHtml(tok)}</span>`;
+      } else if (/^\d/.test(tok)) {
+        out += `<span class="tok-number">${escapeHtml(tok)}</span>`;
+      } else if (keywords.has(tok)) {
+        out += `<span class="tok-keyword">${escapeHtml(tok)}</span>`;
+      } else if (builtins.has(tok)) {
+        out += `<span class="tok-builtin">${escapeHtml(tok)}</span>`;
+      } else {
+        const nextChar = raw[m.index + tok.length];
+        if (nextChar === '(') {
+          out += `<span class="tok-fn">${escapeHtml(tok)}</span>`;
+        } else {
+          out += escapeHtml(tok);
+        }
+      }
+      last = tokenRe.lastIndex;
+    }
+    if (last < raw.length) out += escapeHtml(raw.slice(last));
+    return out;
+  }
+
+  // --- 辅助：Notion 属性解析、颜色映射与日期格式化 ---
+  const VALID_NOTION_COLORS = new Set([
+    'gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red',
+    'gray_bg', 'brown_bg', 'orange_bg', 'yellow_bg', 'green_bg', 'blue_bg', 'purple_bg', 'pink_bg', 'red_bg',
+  ]);
+
+  function getAttr(attrStr, name) {
+    const m = String(attrStr || '').match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, 'i'));
+    return m ? m[1] : '';
+  }
+
+  function colorClass(color) {
+    const c = String(color || '').trim().toLowerCase();
+    return VALID_NOTION_COLORS.has(c) ? `nc-${c}` : '';
+  }
+
+  function resolveMediaUrl(src, mediaMap = {}, rawRefs = {}) {
+    const clean = String(src || '').trim();
+    if (!clean) return '';
+    if (mediaMap[clean]) return mediaMap[clean];
+    if (rawRefs[clean]) return `/api/media?url=${encodeURIComponent(rawRefs[clean])}`;
+    if (/^https?:\/\//i.test(clean)) {
+      if (/\.(?:amazonaws\.com|notion\.so|notion-static\.com|notion\.site)\b/i.test(clean)) {
+        return `/api/media?url=${encodeURIComponent(clean)}`;
+      }
+      return clean;
+    }
+    return '';
+  }
+
+  function formatNotionDateTag(attrStr) {
+    const start = getAttr(attrStr, 'start');
+    const end = getAttr(attrStr, 'end');
+    const startTime = getAttr(attrStr, 'start-time');
+    const endTime = getAttr(attrStr, 'end-time');
+    if (!start) return '';
+    let label = start;
+    if (startTime) label += ` ${startTime}`;
+    if (end && end !== start) {
+      label += ` → ${end}`;
+      if (endTime) label += ` ${endTime}`;
+    } else if (endTime && endTime !== startTime) {
+      label += `–${endTime}`;
+    }
+    return label;
+  }
+
+  function unescapeMarkdownText(str) {
+    // 处理行末硬换行 \ 和 Notion Markdown 反斜杠转义（如 Y\_hat、e\^o\_j、\<tag>）
+    return String(str || '')
+      .replace(/\\\n/g, '<br />')
+      .replace(/\\([\\`*_{}\[\]()#+\-.!~<>^|$&])/g, '$1');
+  }
+
+  // --- 零依赖轻量 LaTeX 数学排版渲染器（支持希腊字母、运算符、分式、根号、上下标） ---
+  const LATEX_SYMBOLS = {
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε',
+    zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
+    lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ',
+    tau: 'τ', upsilon: 'υ', phi: 'ϕ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+    Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ',
+    Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+    times: '×', cdot: '·', div: '÷', pm: '±', mp: '∓', infty: '∞', partial: '∂',
+    nabla: '∇', sum: '∑', prod: '∏', int: '∫', approx: '≈', sim: '∼', equiv: '≡',
+    neq: '≠', ne: '≠', leq: '≤', le: '≤', geq: '≥', ge: '≥', ll: '≪', gg: '≫',
+    in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', cup: '∪', cap: '∩',
+    forall: '∀', exists: '∃', rightarrow: '→', to: '→', leftarrow: '←',
+    Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔', ldots: '…', cdots: '⋯',
+    quad: '  ', qquad: '    ', ',': ' ', ';': ' ',
+  };
+
+  function renderLatexMath(expr) {
+    let s = escapeHtml(String(expr || '').trim());
+    // 去掉 \left / \right 修饰符
+    s = s.replace(/\\(?:left|right)\b/g, '');
+    // \text{...} / \mathrm{...} / \mathbf{...} / \mathbb{...}
+    s = s.replace(/\\(?:text|mathrm)\{([^{}]+)\}/g, '<span style="font-family:inherit;font-style:normal;">$1</span>');
+    s = s.replace(/\\(?:mathbf|boldsymbol|bm)\{([^{}]+)\}/g, '<strong>$1</strong>');
+    s = s.replace(/\\mathbb\{([^{}]+)\}/g, '<strong>$1</strong>');
+    // \frac{a}{b}（支持最多 2 层）
+    for (let k = 0; k < 2; k++) {
+      s = s.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, '<span class="math-frac"><span>$1</span><span>$2</span></span>');
+    }
+    // \sqrt{...}
+    s = s.replace(/\\sqrt\{([^{}]+)\}/g, '√($1)');
+    // \hat{x} / \bar{x} / \tilde{x} / \vec{x}
+    s = s.replace(/\\hat\{([^{}]+)\}/g, '$1̂');
+    s = s.replace(/\\bar\{([^{}]+)\}/g, '<span style="text-decoration:overline;">$1</span>');
+    s = s.replace(/\\tilde\{([^{}]+)\}/g, '$1̃');
+    s = s.replace(/\\vec\{([^{}]+)\}/g, '$1⃗');
+    // 希腊字母与常用算符
+    s = s.replace(/\\([A-Za-z]+|[,;])/g, (m, sym) => (sym in LATEX_SYMBOLS ? LATEX_SYMBOLS[sym] : m));
+    // 上下标（优先花括号形式，再处理单字符）
+    s = s.replace(/\^\{([^{}]+)\}/g, '<sup>$1</sup>');
+    s = s.replace(/_\{([^{}]+)\}/g, '<sub>$1</sub>');
+    s = s.replace(/\^([A-Za-z0-9+\-∞])/g, '<sup>$1</sup>');
+    s = s.replace(/_([A-Za-z0-9])/g, '<sub>$1</sub>');
+    return s;
+  }
+
+  // --- 行内 Markdown + 官方 Notion XML 内联标签完整渲染 ---
+  function renderInlineMarkdown(text, refs = {}, mediaMap = {}) {
+    let s = String(text || '');
+    const placeholders = [];
+    const stash = (html) => {
+      const idx = placeholders.length;
+      placeholders.push(html);
+      return `\u0000PH${idx}\u0000`;
+    };
+    const restore = (str) => {
+      let cur = str;
+      for (let pass = 0; pass < 6 && cur.includes('\u0000PH'); pass++) {
+        cur = cur.replace(/\u0000PH(\d+)\u0000/g, (_, idx) => placeholders[Number(idx)] ?? '');
+      }
+      return cur;
+    };
+
+    // 1. 保护行内代码 `...` 与 Notion XML <code>...</code>（内部按字面量转义，不解析嵌套标签）
+    s = s.replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_, code) =>
+      stash(`<code class="inline-code">${escapeHtml(code)}</code>`)
+    );
+    s = s.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml(code)}</code>`));
+
+    // 2. 保护并美化渲染行内数学公式 $...$（避免 \$ 被误匹配）
+    s = s.replace(/(?<!\\)\$([^$\n]+?)(?<!\\)\$/g, (_, expr) =>
+      stash(`<span class="inline-math">${renderLatexMath(expr)}</span>`)
+    );
+
+    // 3. 自闭合内联标签：<date ... />、<mention-date ... />、<link-preview ... />、<mention ... />、<br />
+    s = s.replace(/<(?:date|mention-date)\b([^>]*)\/?>/gi, (_, attrs) => {
+      const formatted = formatNotionDateTag(attrs);
+      return stash(`<span class="notion-date-pill">📅 ${escapeHtml(formatted || '日期')}</span>`);
+    });
+    s = s.replace(/<link-preview\b([^>]*)\/>/gi, (_, attrs) => {
+      const url = getAttr(attrs, 'url');
+      const source = getAttr(attrs, 'source') || url;
+      return stash(
+        `<a class="notion-mention-pill" data-external-url="${escapeHtml(url)}">🔗 ${escapeHtml(source)}</a>`
+      );
+    });
+    s = s.replace(/<mention\b([^>]*)\/>/gi, (_, attrs) => {
+      const url = getAttr(attrs, 'url');
+      const isUser = url.startsWith('user://');
+      const isDb = getAttr(attrs, 'type') === 'database' || url.startsWith('collection://');
+      if (isUser) {
+        return stash(`<span class="notion-mention-pill">@用户</span>`);
+      }
+      if (/^https?:\/\//i.test(url)) {
+        return stash(
+          `<a class="notion-mention-pill" data-notion-url="${escapeHtml(url)}">${isDb ? '🗂️' : '📄'} ${escapeHtml(url)}</a>`
+        );
+      }
+      return stash(`<span class="notion-mention-pill">${escapeHtml(url || '引用')}</span>`);
+    });
+    s = s.replace(/<br\s*\/?>/gi, () => stash('<br />'));
+
+    // 4. 成对 Mention 标签：<mention url="...">Label</mention> / <mention-page> / <mention-user>
+    s = s.replace(/<(mention|mention-page|mention-database)\b([^>]*)>([\s\S]*?)<\/\1>/gi, (_, tag, attrs, inner) => {
+      const url = getAttr(attrs, 'url');
+      const label = inner.replace(/<[^>]+>/g, '').trim() || url || '页面';
+      if (url.startsWith('user://')) {
+        return stash(`<span class="notion-mention-pill">@${escapeHtml(label)}</span>`);
+      }
+      const isDb = tag.toLowerCase() === 'mention-database' || getAttr(attrs, 'type') === 'database' || url.startsWith('collection://');
+      if (url && /^https?:\/\//i.test(url)) {
+        return stash(
+          `<a class="notion-mention-pill" data-notion-url="${escapeHtml(url)}">${isDb ? '🗂️' : '📄'} ${escapeHtml(label)}</a>`
+        );
+      }
+      return stash(`<span class="notion-mention-pill">${escapeHtml(label)}</span>`);
+    });
+    s = s.replace(/<mention-user\b[^>]*>([\s\S]*?)<\/mention-user>/gi, (_, label) =>
+      stash(`<span class="notion-mention-pill">@${escapeHtml(label.replace(/<[^>]+>/g, '').trim())}</span>`)
+    );
+
+    // 5. 成对富文本标签（由内向外循环解析，完整支持 <b> / <i> / <u> / <s> / <span color="..."> 嵌套）
+    const inlineTagRe = /<(b|strong|i|em|u|s|del|span)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+    for (let depth = 0; depth < 6; depth++) {
+      let changed = false;
+      s = s.replace(inlineTagRe, (_, rawTag, attrs, inner) => {
+        changed = true;
+        const tag = rawTag.toLowerCase();
+        const renderedInner = renderInlineTextFragment(inner, refs, mediaMap, stash);
+        if (tag === 'b' || tag === 'strong') return stash(`<strong>${renderedInner}</strong>`);
+        if (tag === 'i' || tag === 'em') return stash(`<em>${renderedInner}</em>`);
+        if (tag === 'u') return stash(`<u>${renderedInner}</u>`);
+        if (tag === 's' || tag === 'del') return stash(`<del>${renderedInner}</del>`);
+        if (tag === 'span') {
+          const cls = colorClass(getAttr(attrs, 'color'));
+          const underline = getAttr(attrs, 'underline') === 'true';
+          const styles = underline ? 'text-decoration:underline;' : '';
+          return stash(`<span class="${cls}"${styles ? ` style="${styles}"` : ''}>${renderedInner}</span>`);
+        }
+        return stash(renderedInner);
+      });
+      if (!changed) break;
+    }
+
+    const finalHtml = renderInlineTextFragment(s, refs, mediaMap, stash);
+    return restore(finalHtml);
+  }
+
+  function renderInlineTextFragment(fragment, refs, mediaMap, stash) {
+    let s = String(fragment || '');
+    // 引用角标 [^https://...]
+    s = s.replace(/\[\^(https?:\/\/[^\]\s]+)\]/g, (_, url) =>
+      stash(`<a class="inline-link" style="font-size:0.8em;vertical-align:super;" data-external-url="${escapeHtml(url)}">[引]</a>`)
+    );
+    // Markdown 链接 [label](url)
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+      const resolved = refs[url] || url;
+      const isNotion = /notion\.(so|com|site)\//i.test(resolved);
+      const cleanLabel = escapeHtml(unescapeMarkdownText(label));
+      if (isNotion) {
+        return stash(`<a class="inline-link" data-notion-url="${escapeHtml(resolved)}">${cleanLabel}</a>`);
+      }
+      return stash(`<a class="inline-link" data-external-url="${escapeHtml(resolved)}">${cleanLabel}</a>`);
+    });
+
+    s = escapeHtml(s);
+    // 粗体 / 删除线 / 斜体（避免误匹配被反斜杠转义的 \* 或 \~）
+    s = s.replace(/(?<!\\)\*\*([^\n*]+?)(?<!\\)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(?<!\\)~~([^\n~]+?)(?<!\\)~~/g, '<del>$1</del>');
+    s = s.replace(/(^|[^\\*])\*([^\n*]+?)(?<!\\)\*/g, '$1<em>$2</em>');
+    // 反转义 Markdown 反斜杠（如 Y\_hat -> Y_hat、e\^o\_j -> e^o_j、\<tag> -> <tag>）
+    s = unescapeMarkdownText(s);
+    return s;
+  }
+
+  // --- 读取配对容器标签（支持同名嵌套） ---
+  function readBalancedXmlBlock(lines, startIdx, tagName) {
+    const openRe = new RegExp(`<${tagName}\\b(?![^>]*/>)`, 'gi');
+    const closeRe = new RegExp(`</${tagName}\\s*>`, 'gi');
+    let depth = 0;
+    let i = startIdx;
+    const collected = [];
+    while (i < lines.length) {
+      const cur = lines[i];
+      collected.push(cur);
+      const opens = (cur.match(openRe) || []).length;
+      const closes = (cur.match(closeRe) || []).length;
+      depth += opens - closes;
+      i++;
+      if (depth <= 0) break;
+    }
+    const raw = collected.join('\n');
+    const openHead = raw.match(new RegExp(`^\\s*<${tagName}\\b([^>]*)>`, 'i'));
+    const attrs = openHead ? openHead[1] : '';
+    const inner = raw
+      .replace(new RegExp(`^\\s*<${tagName}\\b[^>]*>`, 'i'), '')
+      .replace(new RegExp(`</${tagName}\\s*>\\s*$`, 'i'), '')
+      .replace(/^\n/, '')
+      .replace(/\n$/, '');
+    return { nextIdx: i, raw, attrs, inner };
+  }
+
+  function splitPipeRow(line) {
+    const trimmed = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
+    const cells = [];
+    let cur = '';
+    for (let k = 0; k < trimmed.length; k++) {
+      if (trimmed[k] === '\\' && trimmed[k + 1] === '|') {
+        cur += '|';
+        k++;
+      } else if (trimmed[k] === '|') {
+        cells.push(cur.trim());
+        cur = '';
+      } else {
+        cur += trimmed[k];
+      }
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  // --- Notion-flavored Markdown 完整分块解析器（保留每块原始 raw 用于精准写回） ---
+  function parseNotionMarkdownBlocks(markdown) {
+    const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+    const blocks = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!trimmed || /^<(?:p|empty-block)\s*\/>$/i.test(trimmed)) {
+        i++;
+        continue;
+      }
+
+      // 1. 任意长度围栏代码块（支持 ``` / ```` 等）
+      const fenceMatch = line.match(/^(\s*)(`{3,})([^\s`]*)\s*$/);
+      if (fenceMatch) {
+        const start = i;
+        const fence = fenceMatch[2];
+        const lang = fenceMatch[3] || '';
+        const closeRe = new RegExp(`^\\s*${fence}\\s*$`);
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !closeRe.test(lines[i])) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) i++;
+        blocks.push({ type: 'code', lang, code: codeLines.join('\n'), raw: lines.slice(start, i).join('\n') });
+        continue;
+      }
+
+      // 2. 块级数学公式 $$ ... $$
+      if (trimmed === '$$') {
+        const start = i;
+        const eqLines = [];
+        i++;
+        while (i < lines.length && lines[i].trim() !== '$$') {
+          eqLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) i++;
+        blocks.push({ type: 'equation', text: eqLines.join('\n').trim(), raw: lines.slice(start, i).join('\n') });
+        continue;
+      }
+
+      // 3. <equation ...>...</equation>
+      if (/^<equation\b/i.test(trimmed)) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'equation');
+        blocks.push({ type: 'equation', text: inner.trim(), color: getAttr(attrs, 'color'), raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 4. 目录 <table-of-contents ... />
+      if (/^<table-of-contents\b[^>]*\/?>$/i.test(trimmed)) {
+        blocks.push({ type: 'toc', raw: line });
+        i++;
+        continue;
+      }
+
+      // 5. 自闭合或成对媒体标签：<image> / <pdf> / <file> / <audio> / <video> / <bookmark> / <embed>
+      const mediaStart = trimmed.match(/^<(image|pdf|file|audio|video|bookmark|embed)\b([\s\S]*)$/i);
+      if (mediaStart) {
+        const tag = mediaStart[1].toLowerCase();
+        const start = i;
+        let combined = line;
+        // 兼容跨行自闭合标签 <image source="..." \n />
+        if (/\/>\s*$/.test(trimmed)) {
+          i++;
+        } else if (new RegExp(`</${tag}\\s*>`, 'i').test(trimmed)) {
+          i++;
+        } else {
+          i++;
+          const buf = [line];
+          while (i < lines.length) {
+            buf.push(lines[i]);
+            const curT = lines[i].trim();
+            i++;
+            if (/\/>\s*$/.test(curT) || new RegExp(`</${tag}\\s*>`, 'i').test(curT)) break;
+          }
+          combined = buf.join('\n');
+        }
+        const openAttrM = combined.match(new RegExp(`<${tag}\\b([^>]*?)(?:\\/>|>)`, 'i'));
+        const attrs = openAttrM ? openAttrM[1] : '';
+        const src = getAttr(attrs, 'source') || getAttr(attrs, 'url');
+        const captionM = combined.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+        const caption = captionM ? captionM[1].trim() : '';
+        blocks.push({
+          type: tag === 'image' ? 'image' : 'media',
+          mediaType: tag,
+          src,
+          alt: caption,
+          color: getAttr(attrs, 'color'),
+          raw: combined,
+        });
+        continue;
+      }
+
+      // 6. 子页面 / 子数据库 / 文件夹
+      const childMatch = trimmed.match(/^<(page|database|folder)\b/i);
+      if (childMatch) {
+        const tag = childMatch[1].toLowerCase();
+        let raw, attrs, inner;
+        if (/\/>\s*$/.test(trimmed)) {
+          raw = line;
+          const m = trimmed.match(/^<(?:page|database|folder)\b([^>]*)\/>/i);
+          attrs = m ? m[1] : '';
+          inner = '';
+          i++;
+        } else {
+          const parsed = readBalancedXmlBlock(lines, i, tag);
+          raw = parsed.raw;
+          attrs = parsed.attrs;
+          inner = parsed.inner;
+          i = parsed.nextIdx;
+        }
+        blocks.push({
+          type: tag === 'database' ? 'child_database' : tag === 'folder' ? 'child_folder' : 'child_page',
+          url: getAttr(attrs, 'url') || getAttr(attrs, 'data-source-url'),
+          icon: getAttr(attrs, 'icon'),
+          color: getAttr(attrs, 'color'),
+          title: inner.replace(/<[^>]+>/g, '').trim() || '未命名页面',
+          raw,
+        });
+        continue;
+      }
+
+      // 7. Callout <callout icon="..." color="...">...</callout>
+      if (/^<callout\b/i.test(trimmed)) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'callout');
+        blocks.push({
+          type: 'callout',
+          icon: getAttr(attrs, 'icon') || '💡',
+          color: getAttr(attrs, 'color'),
+          text: inner.trim(),
+          raw,
+        });
+        i = nextIdx;
+        continue;
+      }
+
+      // 8. Toggle <toggle heading="..." color="...">...</toggle> 或 <details>
+      if (/^<toggle\b/i.test(trimmed)) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'toggle');
+        const splitIdx = inner.indexOf('\n\n');
+        const summary = splitIdx >= 0 ? inner.slice(0, splitIdx).trim() : inner.split('\n')[0].trim();
+        const body = splitIdx >= 0 ? inner.slice(splitIdx + 2).trim() : inner.split('\n').slice(1).join('\n').trim();
+        blocks.push({
+          type: 'toggle',
+          heading: getAttr(attrs, 'heading'),
+          color: getAttr(attrs, 'color'),
+          summary: summary || '折叠区块',
+          body,
+          raw,
+        });
+        i = nextIdx;
+        continue;
+      }
+      if (/^<details\b/i.test(trimmed)) {
+        const { nextIdx, raw, inner } = readBalancedXmlBlock(lines, i, 'details');
+        const sumM = inner.match(/<summary>([\s\S]*?)<\/summary>/i);
+        const summary = sumM ? sumM[1].trim() : '折叠内容';
+        const body = inner.replace(/^[\s\S]*?<\/summary>/i, '').trim();
+        blocks.push({ type: 'toggle', heading: '', color: '', summary, body, raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 9. 多栏 <columns>...</columns>
+      if (/^<columns\b/i.test(trimmed)) {
+        const { nextIdx, raw, inner } = readBalancedXmlBlock(lines, i, 'columns');
+        const cols = [];
+        const colRe = /<column\b([^>]*)>([\s\S]*?)<\/column>/gi;
+        let cm;
+        while ((cm = colRe.exec(inner)) !== null) {
+          cols.push({
+            ratio: Number(getAttr(cm[1], 'ratio') || 0),
+            markdown: cm[2].trim(),
+          });
+        }
+        blocks.push({ type: 'columns', columns: cols, raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 10. 同步块 <synced-block> / <synced-block-reference>
+      const syncM = trimmed.match(/^<(synced-block|synced-block-reference)\b/i);
+      if (syncM) {
+        const tag = syncM[1].toLowerCase();
+        const { nextIdx, raw, inner } = readBalancedXmlBlock(lines, i, tag);
+        blocks.push({ type: 'synced_block', markdown: inner.trim(), raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 11. 会议笔记 <meeting-notes>
+      if (/^<meeting-notes\b/i.test(trimmed)) {
+        const { nextIdx, raw, inner } = readBalancedXmlBlock(lines, i, 'meeting-notes');
+        const notesM = inner.match(/<meeting-notes-section-notes>([\s\S]*?)<\/meeting-notes-section-notes>/i);
+        const sumM = inner.match(/<meeting-notes-section-summary>([\s\S]*?)<\/meeting-notes-section-summary>/i);
+        const title = inner.replace(/<meeting-notes-section-[\s\S]*$/i, '').trim() || '会议笔记';
+        const body = [sumM ? `### 摘要\n${sumM[1].trim()}` : '', notesM ? notesM[1].trim() : ''].filter(Boolean).join('\n\n');
+        blocks.push({ type: 'toggle', heading: 'h3', color: 'gray_bg', summary: `🎙️ ${title}`, body, raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 12. XML 风格块：<quote> / <todo> / <h1-h4> / <p> / <ul> / <ol>
+      const xmlQuote = trimmed.match(/^<quote\b/i);
+      if (xmlQuote) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'quote');
+        blocks.push({ type: 'quote', text: inner.trim(), color: getAttr(attrs, 'color'), raw });
+        i = nextIdx;
+        continue;
+      }
+      const xmlTodo = trimmed.match(/^<todo\b/i);
+      if (xmlTodo) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'todo');
+        blocks.push({
+          type: 'todo',
+          checked: getAttr(attrs, 'checked').toLowerCase() === 'true',
+          xmlTodo: true,
+          color: getAttr(attrs, 'color'),
+          text: inner.trim(),
+          raw,
+        });
+        i = nextIdx;
+        continue;
+      }
+      const xmlH = trimmed.match(/^<(h[1-4])\b/i);
+      if (xmlH) {
+        const tag = xmlH[1].toLowerCase();
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, tag);
+        blocks.push({ type: tag, text: inner.trim(), color: getAttr(attrs, 'color'), raw });
+        i = nextIdx;
+        continue;
+      }
+      if (/^<p\b(?![^>]*\/>)/i.test(trimmed)) {
+        const { nextIdx, raw, attrs, inner } = readBalancedXmlBlock(lines, i, 'p');
+        if (inner.trim()) {
+          blocks.push({ type: 'paragraph', text: inner.trim(), color: getAttr(attrs, 'color'), raw });
+        }
+        i = nextIdx;
+        continue;
+      }
+      const xmlList = trimmed.match(/^<(ul|ol)\b/i);
+      if (xmlList) {
+        const tag = xmlList[1].toLowerCase();
+        const { nextIdx, raw, inner } = readBalancedXmlBlock(lines, i, tag);
+        const liRe = /<li\b([^>]*)>([\s\S]*?)<\/li>/gi;
+        let lm;
+        let idxNum = 1;
+        while ((lm = liRe.exec(inner)) !== null) {
+          blocks.push({
+            type: tag === 'ol' ? 'numbered' : 'bullet',
+            indent: 0,
+            num: String(idxNum++),
+            color: getAttr(lm[1], 'color'),
+            text: lm[2].trim(),
+            raw,
+          });
+        }
+        i = nextIdx;
+        continue;
+      }
+      if (/^<(?:custom-block|external_object_instance)\b/i.test(trimmed)) {
+        const mTag = trimmed.match(/^<([a-z_-]+)\b/i)[1];
+        if (/\/>\s*$/.test(trimmed)) {
+          blocks.push({ type: 'media', mediaType: 'embed', src: '', alt: trimmed, raw: line });
+          i++;
+        } else {
+          const parsed = readBalancedXmlBlock(lines, i, mTag);
+          blocks.push({ type: 'media', mediaType: 'embed', src: getAttr(parsed.attrs, 'url'), alt: parsed.inner || mTag, raw: parsed.raw });
+          i = parsed.nextIdx;
+        }
+        continue;
+      }
+
+      // 13. HTML 表格 <table>...</table>
+      if (/^<table\b/i.test(trimmed)) {
+        const { nextIdx, raw } = readBalancedXmlBlock(lines, i, 'table');
+        const rows = [];
+        const trRe = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi;
+        let tr;
+        while ((tr = trRe.exec(raw)) !== null) {
+          const rowColor = getAttr(tr[1], 'color');
+          const cells = [];
+          const tdRe = /<(td|th)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+          let td;
+          while ((td = tdRe.exec(tr[2])) !== null) {
+            cells.push({
+              isHeader: td[1].toLowerCase() === 'th',
+              color: getAttr(td[2], 'color') || rowColor,
+              text: td[3].trim(),
+            });
+          }
+          if (cells.length) rows.push(cells);
+        }
+        blocks.push({ type: 'table', rows, raw });
+        i = nextIdx;
+        continue;
+      }
+
+      // 14. GFM Markdown 管道表格 | a | b |
+      if (trimmed.startsWith('|') && i + 1 < lines.length && /^\s*\|?[\s:-]+\|/.test(lines[i + 1])) {
+        const start = i;
+        const rows = [];
+        let rowIndex = 0;
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          const cells = splitPipeRow(lines[i]);
+          if (!cells.every((c) => /^[:-\s]*$/.test(c))) {
+            rows.push(cells.map((text) => ({ isHeader: rowIndex === 0, color: '', text })));
+            rowIndex++;
+          }
+          i++;
+        }
+        blocks.push({ type: 'table', rows, raw: lines.slice(start, i).join('\n') });
+        continue;
+      }
+
+      // 15. 分割线
+      if (/^(?:---+|\*\*\*+|___+)$/.test(trimmed)) {
+        blocks.push({ type: 'hr', raw: line });
+        i++;
+        continue;
+      }
+
+      // 16. Markdown 标题 H1~H4
+      const hMatch = line.match(/^(#{1,4})\s+(.+)$/);
+      if (hMatch) {
+        blocks.push({ type: `h${hMatch[1].length}`, text: hMatch[2].trim(), raw: line });
+        i++;
+        continue;
+      }
+
+      // 17. 待办事项 - [ ] / - [x]
+      const todoMatch = line.match(/^(\s*[-*]\s+)\[([ xX])\]\s*(.*)$/);
+      if (todoMatch) {
+        blocks.push({
+          type: 'todo',
+          checked: todoMatch[2].toLowerCase() === 'x',
+          prefix: todoMatch[1],
+          text: todoMatch[3],
+          raw: line,
+        });
+        i++;
+        continue;
+      }
+
+      // 18. 无序 / 有序列表项
+      const bulletMatch = line.match(/^(\s*)[-*+]\s+(.+)$/);
+      if (bulletMatch) {
+        blocks.push({
+          type: 'bullet',
+          indent: Math.floor(bulletMatch[1].length / 2),
+          text: bulletMatch[2],
+          raw: line,
+        });
+        i++;
+        continue;
+      }
+      const numMatch = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+      if (numMatch) {
+        blocks.push({
+          type: 'numbered',
+          indent: Math.floor(numMatch[1].length / 2),
+          num: numMatch[2],
+          text: numMatch[3],
+          raw: line,
+        });
+        i++;
+        continue;
+      }
+
+      // 19. 引用块 >
+      if (trimmed.startsWith('>')) {
+        const start = i;
+        const qLines = [];
+        while (i < lines.length && lines[i].trim().startsWith('>')) {
+          qLines.push(lines[i].replace(/^\s*>\s?/, ''));
+          i++;
+        }
+        blocks.push({ type: 'quote', text: qLines.join('\n'), raw: lines.slice(start, i).join('\n') });
+        continue;
+      }
+
+      // 20. Markdown 图片 ![alt](url)
+      const imgMd = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      if (imgMd) {
+        blocks.push({ type: 'image', alt: imgMd[1], src: imgMd[2], raw: line });
+        i++;
+        continue;
+      }
+
+      // 21. 普通段落（合并连续非特殊行）
+      const start = i;
+      const pLines = [line];
+      i++;
+      while (i < lines.length) {
+        const next = lines[i];
+        const nt = next.trim();
+        if (
+          !nt ||
+          nt === '$$' ||
+          /^\s*`{3,}/.test(next) ||
+          /^#{1,4}\s+/.test(next) ||
+          /^\s*[-*+]\s+/.test(next) ||
+          /^\s*\d+\.\s+/.test(next) ||
+          nt.startsWith('>') ||
+          nt.startsWith('|') ||
+          /^!\[[^\]]*\]\([^)]+\)$/.test(nt) ||
+          /^<(?:page|database|folder|callout|toggle|details|table|image|pdf|file|audio|video|bookmark|embed|equation|columns|synced-block|meeting-notes|quote|todo|h[1-4]|ul|ol|p|empty-block|table-of-contents|custom-block|external_object_instance)\b/i.test(nt) ||
+          /^(?:---+|\*\*\*+|___+)$/.test(nt)
+        ) {
+          break;
+        }
+        pLines.push(next);
+        i++;
+      }
+      blocks.push({ type: 'paragraph', text: pLines.join('\n'), raw: lines.slice(start, i).join('\n') });
+    }
+    return blocks;
+  }
+
+  // --- 顶栏渲染（对齐 Codex 原图：分栏态展示第 1 层 Notion 品牌条 + 第 2 层极简无框面包屑栏） ---
+  function renderTopbar() {
+    brandStrip?.classList.toggle('is-visible', state.layout === 'split');
+    topbar.classList.toggle('is-split', state.layout === 'split');
+    const wsName = state.workspace?.name || 'Notion';
+    const wsInit = getWorkspaceInitial();
+
+    if (state.view === 'auth' || state.view === 'loading') {
+      topbarLeft.innerHTML =
+        state.layout === 'split'
+          ? ''
+          : `
+        <span class="crumb-btn is-static">
+          <span class="ws-badge">N</span>
+          <span class="crumb-text">Notion</span>
+        </span>
+      `;
+      topbarRight.innerHTML = '';
+      bindTopbarCommonEvents();
+      return;
+    }
+
+    if (state.view === 'home' || state.view === 'all') {
+      topbarLeft.innerHTML =
+        state.view === 'home'
+          ? `
+        <div class="popover-wrap">
+          <button type="button" class="crumb-btn" id="btnAccountMenu" title="工作区与连接设置">
+            <span class="ws-badge">${escapeHtml(wsInit)}</span>
+            <span class="crumb-text" style="color:var(--text);font-weight:500;">${escapeHtml(wsName)}</span>
+          </button>
+          <div class="popover-menu ${state.accountMenuOpen ? 'is-open' : ''}" id="accountMenu" style="left:0;right:auto;">
+            <div class="popover-head">
+              <div class="popover-name">${escapeHtml(state.user?.name || wsName)}</div>
+              <div class="popover-email">${escapeHtml(state.user?.email || '已通过 Notion MCP 授权')}</div>
+            </div>
+            <button type="button" class="popover-item" id="btnRefreshHome">刷新最近页面</button>
+            <button type="button" class="popover-item" id="btnReauth">重新授权 Notion</button>
+            <button type="button" class="popover-item is-danger" id="btnLogout">断开连接</button>
+          </div>
+        </div>
+      `
+          : `
+        <button type="button" class="crumb-btn" id="btnGoHome" title="回到 Notion 首页">
+          <span class="ws-badge">${escapeHtml(wsInit)}</span>
+          <span class="crumb-text">${escapeHtml(wsName)}</span>
+        </button>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-btn is-static is-current"><span class="crumb-text">全部页面</span></span>
+      `;
+      topbarRight.innerHTML = `
+        <button type="button" class="notion-open-btn" id="btnOpenNotionApp" title="在浏览器/Notion 中打开">${NOTION_SVG_SMALL}<span>在 Notion 中打开</span></button>
+      `;
+      bindTopbarCommonEvents();
+      return;
+    }
+
+    // 笔记详情页顶栏（对齐 Codex 图 1 / 图 2：左面包屑 + 私人标识，右复制链接 + 在 Notion 中打开）
+    const p = state.currentPage;
+    const crumbsHtml = [];
+    if (state.pageHistory.length > 0) {
+      crumbsHtml.push(
+        `<button type="button" class="icon-btn" id="btnNavBack" style="flex-shrink:0;min-width:26px;height:26px;padding:0 4px;" title="返回上一页">${BACK_SVG}</button>`
+      );
+    }
+    crumbsHtml.push(`
+      <button type="button" class="crumb-btn" id="btnGoHome" title="回到 Notion 首页">
+        <span class="ws-badge">${escapeHtml(wsInit)}</span>
+        <span class="crumb-text">${escapeHtml(wsName)}</span>
+      </button>
+    `);
+    for (const c of p?.breadcrumbs || []) {
+      const cIcon = unwrapIconStr(c.icon);
+      const cIconHtml =
+        cIcon && !cIcon.startsWith('icons/') ? `<span class="crumb-icon">${ renderIconBadge(cIcon, '') }</span>` : '';
+      crumbsHtml.push(`<span class="crumb-sep">/</span>`);
+      if (c.id || c.url) {
+        crumbsHtml.push(
+          `<button type="button" class="crumb-btn" data-crumb-id="${escapeHtml(c.id || c.url)}" title="${escapeHtml(c.title)}">${cIconHtml}<span class="crumb-text">${escapeHtml(c.title)}</span></button>`
+        );
+      } else {
+        crumbsHtml.push(
+          `<button type="button" class="crumb-btn" data-crumb-search="${escapeHtml(c.title)}" title="定位到「${escapeHtml(c.title)}」">${cIconHtml}<span class="crumb-text">${escapeHtml(c.title)}</span></button>`
+        );
+      }
+    }
+    const curIcon = unwrapIconStr(p?.icon);
+    const curIconHtml =
+      curIcon && !curIcon.startsWith('icons/')
+        ? `<span class="crumb-icon">${renderIconBadge(curIcon, '')}</span>`
+        : '';
+    crumbsHtml.push(`<span class="crumb-sep">/</span>`);
+    crumbsHtml.push(
+      `<button type="button" class="crumb-btn is-current" id="btnCurrentPageCrumb" title="点击刷新当前笔记">${curIconHtml}<span class="crumb-text">${escapeHtml(p?.title || '无标题')}</span></button>`
+    );
+    crumbsHtml.push(`<span class="privacy-pill" title="私人页面">${LOCK_SVG}<span>私人</span></span>`);
+
+    topbarLeft.innerHTML = crumbsHtml.join('');
+    topbarRight.innerHTML = `
+      <span class="sync-pill ${state.syncText ? 'is-visible' : ''}" id="syncPill">${escapeHtml(state.syncText)}</span>
+      <button type="button" class="icon-btn" id="btnCopyLink" title="复制页面链接">${LINK_SVG}</button>
+      <button type="button" class="notion-open-btn" id="btnOpenNotionPage" title="在 Notion 中打开此页">${NOTION_SVG_SMALL}<span>在 Notion 中打开</span></button>
+    `;
+    bindTopbarCommonEvents();
+  }
+
+  function bindTopbarCommonEvents() {
+    document.getElementById('btnGoHome')?.addEventListener('click', () => {
+      state.currentPage = null;
+      state.rawMode = false;
+      state.editingBlockIdx = -1;
+      state.view = 'home';
+      renderAll();
+    });
+    document.getElementById('btnNavBack')?.addEventListener('click', () => {
+      if (state.pageHistory.length > 0) {
+        const prevId = state.pageHistory.pop();
+        void openPage(prevId, { pushHistory: false });
+      } else {
+        state.currentPage = null;
+        state.view = 'home';
+        renderAll();
+      }
+    });
+    document.getElementById('btnRefreshHome')?.addEventListener('click', () => {
+      state.accountMenuOpen = false;
+      void loadHome(true);
+    });
+    document.getElementById('btnCurrentPageCrumb')?.addEventListener('click', () => {
+      if (state.currentPage?.id) {
+        void openPage(state.currentPage.id, { pushHistory: false, silent: false });
+      }
+    });
+    document.getElementById('btnOpenNotionApp')?.addEventListener('click', () => {
+      openExternalUrl('https://www.notion.so');
+    });
+    document.getElementById('btnOpenNotionPage')?.addEventListener('click', () => {
+      openExternalUrl(state.currentPage?.url || 'https://www.notion.so');
+    });
+    document.getElementById('btnCopyLink')?.addEventListener('click', async () => {
+      const u = state.currentPage?.url;
+      if (!u) return;
+      try {
+        await navigator.clipboard.writeText(u);
+        showToast('已复制 Notion 页面链接');
+      } catch {
+        showToast(u);
+      }
+    });
+    document.getElementById('btnRefreshPage')?.addEventListener('click', () => {
+      if (state.currentPage?.id) {
+        void openPage(state.currentPage.id, { pushHistory: false, silent: false });
+      }
+    });
+    document.getElementById('btnToggleRaw')?.addEventListener('click', () => {
+      state.rawMode = !state.rawMode;
+      state.editingBlockIdx = -1;
+      renderAll();
+    });
+    document.getElementById('btnToggleSplit')?.addEventListener('click', () => {
+      postToHost({ type: 'AGY_NOTION_TOGGLE_SPLIT' });
+    });
+    document.getElementById('btnChatToggle')?.addEventListener('click', () => {
+      postToHost({ type: 'AGY_NOTION_TOGGLE_SPLIT' });
+    });
+    document.getElementById('btnAccountMenu')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.accountMenuOpen = !state.accountMenuOpen;
+      document.getElementById('accountMenu')?.classList.toggle('is-open', state.accountMenuOpen);
+    });
+    document.getElementById('btnReauth')?.addEventListener('click', () => {
+      state.accountMenuOpen = false;
+      void triggerOAuthLogin();
+    });
+    document.getElementById('btnLogout')?.addEventListener('click', async () => {
+      state.accountMenuOpen = false;
+      await fetch('/api/auth/logout', { method: 'POST' });
+      state.connected = false;
+      state.workspace = null;
+      state.user = null;
+      state.currentPage = null;
+      state.view = 'auth';
+      renderAll();
+      showToast('已断开 Notion 连接');
+    });
+    topbarLeft.querySelectorAll('[data-crumb-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-crumb-id');
+        if (id) void openPage(id);
+      });
+    });
+    topbarLeft.querySelectorAll('[data-crumb-search]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const title = btn.getAttribute('data-crumb-search');
+        if (!title) return;
+        try {
+          const data = await apiJson(`/api/search?q=${encodeURIComponent(title)}&limit=5`);
+          const exact = (data.results || []).find((r) => r.title === title) || data.results?.[0];
+          if (exact) {
+            void openPage(exact.id || exact.url);
+          } else {
+            showToast(`未找到页面「${title}」`);
+          }
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+    });
+  }
+
+  // --- 主体渲染 ---
+  function renderMain() {
+    if (state.view === 'loading') {
+      mainScroll.innerHTML = `<div class="loading-center"><div class="spinner"></div><div>正在连接 Notion 工作台...</div></div>`;
+      return;
+    }
+
+    if (state.view === 'auth') {
+      mainScroll.innerHTML = `
+        <div class="auth-view">
+          <div class="auth-card">
+            <div class="auth-logo">${NOTION_SVG_SMALL.replace(/15/g, '28')}</div>
+            <h1>连接你的 Notion 工作区</h1>
+            <p>
+              点击下方按钮在浏览器中完成一次官方 Notion OAuth 授权，即可在 Antigravity 左侧直接浏览、搜索、轻量编辑你的全部 Notion 页面，并在笔记下方随时悬浮提问。
+            </p>
+            <button type="button" class="primary-btn" id="btnStartOAuth">
+              ${NOTION_SVG_SMALL}<span>连接 Notion 账号</span>
+            </button>
+            <div class="auth-status" id="authStatus"></div>
+            <button type="button" class="auth-link-fallback" id="btnOpenAuthFallback">浏览器未自动弹出？点此再次打开授权页</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('btnStartOAuth')?.addEventListener('click', () => void triggerOAuthLogin());
+      document.getElementById('btnOpenAuthFallback')?.addEventListener('click', () => {
+        if (state.lastAuthUrl) openExternalUrl(state.lastAuthUrl);
+      });
+      return;
+    }
+
+    if (state.view === 'home') {
+      renderHomeView();
+      return;
+    }
+
+    if (state.view === 'all') {
+      renderAllPagesView();
+      return;
+    }
+
+    if (state.view === 'page') {
+      renderPageView();
+    }
+  }
+
+  function renderHomeView() {
+    const userName = state.user?.name || state.workspace?.name || 'Real';
+    const wsInit = getWorkspaceInitial();
+    const cardsHtml = (state.recentPages || [])
+      .map((item) => {
+        const meta = item.timestamp ? formatRelativeTime(item.timestamp) : item.path || '最近访问';
+        return `
+          <button type="button" class="page-card" data-open-id="${escapeHtml(item.id || item.url)}" title="${escapeHtml(item.title)}">
+            <div>
+              <div class="card-icon">${renderIconBadge(item.icon, item.type === 'database' ? DB_SVG : DOC_SVG)}</div>
+              <div class="card-title">${escapeHtml(item.title)}</div>
+            </div>
+            <div class="card-footer">
+              <span class="card-avatar">${escapeHtml(wsInit)}</span>
+              <span class="card-meta-text">${escapeHtml(meta)}</span>
+            </div>
+          </button>
+        `;
+      })
+      .join('');
+
+    let searchBoxHtml = '';
+    if (state.searchQuery.trim()) {
+      if (state.searchLoading) {
+        searchBoxHtml = `<div class="search-results-box"><div class="search-results-head"><span>正在搜索「${escapeHtml(state.searchQuery)}」...</span></div></div>`;
+      } else if (Array.isArray(state.searchResults)) {
+        const rows =
+          state.searchResults.length === 0
+            ? `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">未找到与「${escapeHtml(state.searchQuery)}」匹配的页面</div>`
+            : state.searchResults
+                .map(
+                  (r) => `
+                <button type="button" class="search-result-row" data-open-id="${escapeHtml(r.id || r.url)}">
+                  <div class="sr-icon">${renderIconBadge(r.icon, r.type === 'database' ? DB_SVG : DOC_SVG)}</div>
+                  <div class="sr-body">
+                    <div class="sr-title">${escapeHtml(r.title)}</div>
+                    ${r.path ? `<div class="sr-path">${escapeHtml(r.path)}</div>` : ''}
+                    ${r.highlight ? `<div class="sr-highlight">${escapeHtml(r.highlight.replace(/\*\*/g, ''))}</div>` : ''}
+                  </div>
+                </button>`
+                )
+                .join('');
+        searchBoxHtml = `
+          <div class="search-results-box">
+            <div class="search-results-head">
+              <span>搜索结果（${state.searchResults.length}）</span>
+              <button type="button" class="section-link" id="btnCloseSearch" style="padding:2px 6px;font-size:12px;">清除</button>
+            </div>
+            ${rows}
+          </div>
+        `;
+      }
+    }
+
+    mainScroll.innerHTML = `
+      <div class="home-wrap">
+        <h1 class="greeting">${escapeHtml(getGreetingPrefix())}，${escapeHtml(userName)}</h1>
+
+        <div class="search-row">
+          <div class="search-pill">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="search-input" id="homeSearchInput" placeholder="搜索或粘贴页面链接" value="${escapeHtml(state.searchQuery)}" />
+            <button type="button" class="search-clear ${state.searchQuery ? 'is-visible' : ''}" id="btnSearchClear" title="清空">×</button>
+          </div>
+          <button type="button" class="new-page-btn" id="btnHomeNewPage">新建页面</button>
+        </div>
+
+        ${searchBoxHtml}
+
+        <div class="section-head">
+          <div class="section-title">${CLOCK_SVG}<span>最近访问的页面</span></div>
+          <button type="button" class="section-link" id="btnViewAll">查看全部</button>
+        </div>
+
+        <div class="cards-grid">
+          ${cardsHtml || `<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:18px 0;">暂无最近访问的页面，试试点击上方「新建页面」或搜索关键词。</div>`}
+        </div>
+      </div>
+    `;
+
+    const searchInput = document.getElementById('homeSearchInput');
+    const clearBtn = document.getElementById('btnSearchClear');
+    let debounceTimer = null;
+
+    searchInput?.addEventListener('input', () => {
+      state.searchQuery = searchInput.value;
+      clearBtn?.classList.toggle('is-visible', Boolean(state.searchQuery));
+      clearTimeout(debounceTimer);
+      if (!state.searchQuery.trim()) {
+        state.searchResults = null;
+        state.searchLoading = false;
+        renderHomeView();
+        document.getElementById('homeSearchInput')?.focus();
+        return;
+      }
+      debounceTimer = setTimeout(() => void runHomeSearch(state.searchQuery), 360);
+    });
+
+    searchInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        const q = searchInput.value.trim();
+        if (!q) return;
+        if (/^https?:\/\/([^/]+\.)?(notion\.so|notion\.com|notion\.site)\//i.test(q)) {
+          void openPage(q);
+        } else {
+          void runHomeSearch(q);
+        }
+      }
+    });
+
+    clearBtn?.addEventListener('click', () => {
+      state.searchQuery = '';
+      state.searchResults = null;
+      state.searchLoading = false;
+      renderHomeView();
+      document.getElementById('homeSearchInput')?.focus();
+    });
+    document.getElementById('btnCloseSearch')?.addEventListener('click', () => {
+      state.searchQuery = '';
+      state.searchResults = null;
+      renderHomeView();
+    });
+    document.getElementById('btnHomeNewPage')?.addEventListener('click', () => openCreatePageModal(''));
+    document.getElementById('btnViewAll')?.addEventListener('click', () => {
+      state.view = 'all';
+      state.allTab = 'recent';
+      void loadAllPages('recent', '');
+    });
+
+    mainScroll.querySelectorAll('[data-open-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-open-id');
+        if (id) void openPage(id);
+      });
+    });
+  }
+
+  function renderAllPagesView() {
+    const wsInit = getWorkspaceInitial();
+    const tabs = [
+      { id: 'recent', label: '最近访问' },
+      { id: 'private', label: '私人页面' },
+      { id: 'favorite', label: '收藏' },
+      { id: 'shared', label: '共享' },
+    ];
+    const cardsHtml = (state.allResults || [])
+      .map(
+        (item) => `
+        <button type="button" class="page-card" data-open-id="${escapeHtml(item.id || item.url)}" title="${escapeHtml(item.title)}">
+          <div>
+            <div class="card-icon">${renderIconBadge(item.icon, item.type === 'database' ? DB_SVG : DOC_SVG)}</div>
+            <div class="card-title">${escapeHtml(item.title)}</div>
+          </div>
+          <div class="card-footer">
+            <span class="card-avatar">${escapeHtml(wsInit)}</span>
+            <span class="card-meta-text">${escapeHtml(item.path || (item.timestamp ? formatRelativeTime(item.timestamp) : '页面'))}</span>
+          </div>
+        </button>`
+      )
+      .join('');
+
+    mainScroll.innerHTML = `
+      <div class="home-wrap" style="padding-top:32px;">
+        <div class="section-head" style="margin-bottom:18px;">
+          <div class="all-tabs" style="margin:0;">
+            ${tabs
+              .map(
+                (t) => `<button type="button" class="tab-pill ${state.allTab === t.id ? 'is-active' : ''}" data-all-tab="${t.id}">${t.label}</button>`
+              )
+              .join('')}
+          </div>
+          <button type="button" class="new-page-btn" id="btnAllNewPage" style="height:34px;font-size:13px;padding:0 16px;">新建页面</button>
+        </div>
+
+        <div class="cards-grid">
+          ${cardsHtml || `<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:24px 0;">该分类下暂无页面。</div>`}
+        </div>
+
+        ${
+          state.allNextCursor
+            ? `<div style="text-align:center;margin-top:26px;"><button type="button" class="ghost-btn" id="btnLoadMoreAll">加载更多</button></div>`
+            : ''
+        }
+      </div>
+    `;
+
+    mainScroll.querySelectorAll('[data-all-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-all-tab');
+        state.allTab = tab;
+        void loadAllPages(tab, '');
+      });
+    });
+    document.getElementById('btnAllNewPage')?.addEventListener('click', () => openCreatePageModal(''));
+    document.getElementById('btnLoadMoreAll')?.addEventListener('click', () => {
+      void loadAllPages(state.allTab, state.allNextCursor, true);
+    });
+    mainScroll.querySelectorAll('[data-open-id]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-open-id');
+        if (id) void openPage(id);
+      });
+    });
+  }
+
+  function renderBlocksHtml(blocks, refs, mediaMap, opts = {}) {
+    const { editable = true, allHeadings = [] } = opts;
+    return blocks
+      .map((blk, idx) => {
+        const cCls = colorClass(blk.color);
+        if (editable && state.editingBlockIdx === idx) {
+          const isMono = blk.type === 'code';
+          return `
+            <div class="block-editor-box" data-editing-idx="${idx}">
+              <textarea class="block-editor-textarea ${isMono ? 'is-mono' : ''}" id="activeBlockEditor">${escapeHtml(blk.raw)}</textarea>
+              <div class="block-editor-foot">
+                <span>Ctrl + Enter 保存到 Notion · Esc 取消</span>
+                <div class="block-editor-btns">
+                  <button type="button" class="mini-chip-btn" id="btnCancelBlockEdit">取消</button>
+                  <button type="button" class="solid-btn" id="btnSaveBlockEdit" style="height:26px;font-size:12px;padding:0 12px;">保存</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const editBtnHtml = editable
+          ? `<div class="block-actions"><button type="button" class="mini-chip-btn" data-edit-block="${idx}">编辑</button></div>`
+          : '';
+        const dblAttr = editable ? `data-dblclick-edit="${idx}"` : '';
+
+        if (blk.type === 'code') {
+          return `
+            <div class="block-item" data-block-idx="${idx}">
+              <div class="blk-code-wrap">
+                ${blk.lang ? `<span class="blk-code-lang">${escapeHtml(blk.lang)}</span>` : ''}
+                <div class="block-actions">
+                  ${editable ? `<button type="button" class="mini-chip-btn" data-edit-block="${idx}">编辑</button>` : ''}
+                  <button type="button" class="mini-chip-btn" data-copy-code="${idx}">复制</button>
+                </div>
+                <pre class="blk-code-pre"><code>${highlightCode(blk.code, blk.lang)}</code></pre>
+              </div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'h1' || blk.type === 'h2' || blk.type === 'h3' || blk.type === 'h4') {
+          const anchorId = `heading-${idx}`;
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" id="${anchorId}" data-block-idx="${idx}">
+              ${editBtnHtml}
+              <div class="blk-${blk.type} ${cCls}" ${dblAttr}>${renderInlineMarkdown(blk.text, refs, mediaMap)}</div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'equation') {
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
+              ${editBtnHtml}
+              <div class="blk-equation ${cCls}" ${dblAttr}>${renderLatexMath(blk.text)}</div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'toc') {
+          if (allHeadings.length === 0) return '';
+          return `
+            <div class="block-item blk-toc" data-block-idx="${idx}">
+              <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:2px;">目录</div>
+              ${allHeadings
+                .map(
+                  (h) =>
+                    `<button type="button" class="blk-toc-link" style="padding-left:${(h.level - 1) * 14}px;" data-scroll-to="${h.anchorId}">${escapeHtml(h.text)}</button>`
+                )
+                .join('')}
+            </div>
+          `;
+        }
+
+        if (blk.type === 'todo') {
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
+              ${editBtnHtml}
+              <div class="blk-todo ${blk.checked ? 'is-checked' : ''} ${cCls}">
+                <input type="checkbox" ${blk.checked ? 'checked' : ''} ${editable ? `data-toggle-todo="${idx}"` : 'disabled'} />
+                <div class="blk-todo-text" ${dblAttr}>${renderInlineMarkdown(blk.text, refs, mediaMap)}</div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'bullet' || blk.type === 'numbered') {
+          const pad = Math.min(4, blk.indent || 0) * 20;
+          const marker = blk.type === 'numbered' ? `${blk.num}.` : '•';
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}" style="padding-left:${pad}px;">
+              ${editBtnHtml}
+              <div class="blk-list-item ${cCls}">
+                <span class="blk-list-marker">${escapeHtml(marker)}</span>
+                <div style="flex:1;word-break:break-word;" ${dblAttr}>${renderInlineMarkdown(blk.text, refs, mediaMap)}</div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'quote') {
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
+              ${editBtnHtml}
+              <blockquote class="blk-quote ${cCls}" ${dblAttr}>${renderInlineMarkdown(blk.text, refs, mediaMap)}</blockquote>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'callout') {
+          const innerBlocks = parseNotionMarkdownBlocks(blk.text);
+          const innerHtml =
+            innerBlocks.length > 1 || (innerBlocks[0] && innerBlocks[0].type !== 'paragraph')
+              ? renderBlocksHtml(innerBlocks, refs, mediaMap, { editable: false })
+              : renderInlineMarkdown(blk.text, refs, mediaMap);
+          return `
+            <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
+              ${editBtnHtml}
+              <div class="blk-callout ${cCls}" ${dblAttr}>
+                <span class="blk-callout-icon">${escapeHtml(blk.icon || '💡')}</span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">${innerHtml}</div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'toggle') {
+          const hCls = blk.heading ? `blk-${blk.heading}` : '';
+          const childBlocks = blk.body ? parseNotionMarkdownBlocks(blk.body) : [];
+          const childHtml = childBlocks.length
+            ? renderBlocksHtml(childBlocks, refs, mediaMap, { editable: false })
+            : '';
+          return `
+            <div class="block-item" data-block-idx="${idx}">
+              <details class="blk-details ${cCls}">
+                <summary class="${hCls}" style="margin:0;">${renderInlineMarkdown(blk.summary, refs, mediaMap)}</summary>
+                ${childHtml ? `<div class="blk-details-body" style="display:flex;flex-direction:column;gap:8px;">${childHtml}</div>` : ''}
+              </details>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'columns') {
+          return `
+            <div class="block-item blk-columns" data-block-idx="${idx}">
+              ${(blk.columns || [])
+                .map((col) => {
+                  const colBlocks = parseNotionMarkdownBlocks(col.markdown);
+                  const style = col.ratio > 0 ? `flex: 0 0 ${col.ratio}%;` : '';
+                  return `<div class="blk-column" style="${style}">${renderBlocksHtml(colBlocks, refs, mediaMap, { editable: false })}</div>`;
+                })
+                .join('')}
+            </div>
+          `;
+        }
+
+        if (blk.type === 'synced_block') {
+          const innerBlocks = parseNotionMarkdownBlocks(blk.markdown);
+          return `
+            <div class="block-item blk-synced" data-block-idx="${idx}">
+              ${renderBlocksHtml(innerBlocks, refs, mediaMap, { editable: false })}
+            </div>
+          `;
+        }
+
+        if (blk.type === 'table') {
+          const rows = blk.rows || [];
+          if (!rows.length) return '';
+          const firstIsHeader = rows[0].every((c) => c.isHeader);
+          const head = firstIsHeader ? rows[0] : null;
+          const bodyRows = firstIsHeader ? rows.slice(1) : rows;
+          return `
+            <div class="block-item blk-table-wrap" data-block-idx="${idx}">
+              <table class="blk-table">
+                ${
+                  head
+                    ? `<thead><tr>${head
+                        .map((c) => `<th class="${colorClass(c.color)}">${renderInlineMarkdown(c.text, refs, mediaMap)}</th>`)
+                        .join('')}</tr></thead>`
+                    : ''
+                }
+                <tbody>
+                  ${bodyRows
+                    .map(
+                      (r) =>
+                        `<tr>${r
+                          .map((c) => {
+                            const tag = c.isHeader ? 'th' : 'td';
+                            return `<${tag} class="${colorClass(c.color)}">${renderInlineMarkdown(c.text, refs, mediaMap)}</${tag}>`;
+                          })
+                          .join('')}</tr>`
+                    )
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'child_page' || blk.type === 'child_database' || blk.type === 'child_folder') {
+          const badge = blk.type === 'child_database' ? '数据库' : blk.type === 'child_folder' ? '文件夹' : '';
+          const cleanChildIcon = unwrapIconStr(blk.icon);
+          const iconHtml =
+            cleanChildIcon && !cleanChildIcon.startsWith('icons/')
+              ? `<span class="blk-child-icon">${renderIconBadge(cleanChildIcon, '')}</span>`
+              : `<span class="blk-child-icon" style="color:var(--text-muted);">${blk.type === 'child_database' ? DB_SVG : DOC_SVG}</span>`;
+          return `
+            <div class="block-item" data-block-idx="${idx}">
+              <button type="button" class="blk-child-link ${cCls}" data-open-id="${escapeHtml(blk.url)}">
+                ${iconHtml}
+                <span class="blk-child-title">${escapeHtml(blk.title)}</span>
+                ${badge ? `<span class="blk-child-badge">${badge}</span>` : ''}
+              </button>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'image') {
+          const realSrc = resolveMediaUrl(blk.src, mediaMap, refs);
+          if (!realSrc) {
+            return `<div class="block-item blk-p" style="color:var(--text-muted);font-size:13px;">🖼️ 图片附件（等待 Notion 签名链接）：${escapeHtml(blk.alt || blk.src)}</div>`;
+          }
+          return `
+            <div class="block-item" data-block-idx="${idx}">
+              <figure class="blk-img-figure">
+                <img class="blk-img" src="${escapeHtml(realSrc)}" alt="${escapeHtml(blk.alt || '图片')}" data-zoom-img="${escapeHtml(realSrc)}" loading="lazy" />
+                ${blk.alt ? `<figcaption class="blk-img-caption">${renderInlineMarkdown(blk.alt, refs, mediaMap)}</figcaption>` : ''}
+              </figure>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'media') {
+          const realSrc = resolveMediaUrl(blk.src, mediaMap, refs) || blk.src;
+          const icons = { pdf: '📕', file: '📎', audio: '🎵', video: '🎬', bookmark: '🔖', embed: '🧩' };
+          const labels = { pdf: 'PDF 文档', file: '附件文件', audio: '音频', video: '视频', bookmark: '网页书签', embed: '嵌入内容' };
+          const displayTitle = blk.alt || blk.src || labels[blk.mediaType] || '附件';
+          return `
+            <div class="block-item" data-block-idx="${idx}">
+              <button type="button" class="blk-media-card" data-external-url="${escapeHtml(refs[blk.src] || realSrc || '')}">
+                <span>${icons[blk.mediaType] || '📎'}</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(displayTitle)}</span>
+                <span style="font-size:11.5px;color:var(--text-muted);">${labels[blk.mediaType] || '打开'}</span>
+              </button>
+            </div>
+          `;
+        }
+
+        if (blk.type === 'hr') {
+          return `<hr class="blk-hr" />`;
+        }
+
+        return `
+          <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
+            ${editBtnHtml}
+            <div class="blk-p ${cCls}" ${dblAttr}>${renderInlineMarkdown(blk.text, refs, mediaMap)}</div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  function renderPageView() {
+    const p = state.currentPage;
+    if (!p) return;
+
+    const blocks = parseNotionMarkdownBlocks(p.markdown);
+    const refs = p.references || {};
+    const mediaMap = p.proxiedReferences || {};
+    const allHeadings = blocks
+      .map((b, i) => ({ b, i }))
+      .filter(({ b }) => b.type === 'h1' || b.type === 'h2' || b.type === 'h3')
+      .map(({ b, i }) => ({
+        level: Number(b.type[1]),
+        text: unescapeMarkdownText(b.text.replace(/<[^>]+>/g, '')),
+        anchorId: `heading-${i}`,
+      }));
+
+    let bodyHtml = '';
+    if (state.rawMode) {
+      bodyHtml = `
+        <div class="raw-editor-wrap">
+          <textarea class="raw-editor-textarea" id="rawMarkdownEditor">${escapeHtml(p.markdown || '')}</textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12px;color:var(--text-muted);">提示：请保留原有 &lt;page&gt; / &lt;database&gt; 子页面标签以免误删。</span>
+            <div style="display:flex;gap:8px;">
+              <button type="button" class="ghost-btn" id="btnCancelRaw">取消</button>
+              <button type="button" class="solid-btn" id="btnSaveRaw">保存并同步到 Notion</button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      const blocksHtml = renderBlocksHtml(blocks, refs, mediaMap, { editable: true, allHeadings });
+
+      let dbRowsHtml = '';
+      if (Array.isArray(p.databaseRows) && p.databaseRows.length > 0) {
+        dbRowsHtml = `
+          <div style="margin-top:20px;">
+            <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px;">数据库条目（${p.databaseRows.length}）</div>
+            ${p.databaseRows
+              .map(
+                (r) => `
+              <button type="button" class="blk-child-link" data-open-id="${escapeHtml(r.id || r.url)}">
+                <span>${renderIconBadge(r.icon, DOC_SVG)}</span>
+                <span class="blk-child-title">${escapeHtml(r.title)}</span>
+              </button>`
+              )
+              .join('')}
+          </div>
+        `;
+      }
+
+      bodyHtml = `
+        <div class="doc-blocks" id="docBlocks">
+          ${blocksHtml || ''}
+        </div>
+        ${dbRowsHtml}
+        <div class="slash-composer" id="slashComposer">
+          <input type="text" class="slash-input" id="slashInput" placeholder="按 / 插入区块" autocomplete="off" />
+          <div class="slash-menu" id="slashMenu"></div>
+        </div>
+      `;
+    }
+
+    const coverUrl = p.cover ? resolveMediaUrl(p.cover, mediaMap, refs) || p.cover : '';
+    const coverHtml =
+      coverUrl && (/^https?:\/\//i.test(coverUrl) || coverUrl.startsWith('/api/media'))
+        ? `<img class="page-cover" src="${escapeHtml(coverUrl)}" alt="" />`
+        : '';
+
+    const cleanIcon = unwrapIconStr(p.icon);
+    const hasDisplayIcon = Boolean(cleanIcon && !cleanIcon.startsWith('icons/') && !cleanIcon.startsWith(':'));
+    const heroIconInner = hasDisplayIcon
+      ? /^https?:\/\//i.test(cleanIcon) || cleanIcon.startsWith('/api/media')
+        ? `<img src="${escapeHtml(cleanIcon)}" alt="" />`
+        : `<span>${escapeHtml(cleanIcon)}</span>`
+      : '';
+
+    mainScroll.innerHTML = `
+      ${coverHtml}
+      <article class="doc-container ${p.fullWidth ? 'is-full-width' : ''}">
+        <div class="doc-header-zone">
+          ${hasDisplayIcon ? `<div class="doc-hero-icon" id="docIconBtn" title="点击更换图标">${heroIconInner}</div>` : ''}
+          <div class="doc-quick-bar">
+            <button type="button" class="doc-quick-btn" id="btnPickIcon">☺ ${cleanIcon ? '更换图标' : '添加图标'}</button>
+            <button type="button" class="doc-quick-btn" id="btnNewChildPage">＋ 新建子页面</button>
+            <button type="button" class="doc-quick-btn" id="btnQuickRaw">✎ ${state.rawMode ? '退出源码' : 'Markdown 源码'}</button>
+            <button type="button" class="doc-quick-btn" id="btnPageRefreshInline">↻ 同步</button>
+          </div>
+
+          <div class="doc-title-row">
+            <div class="doc-title-input" id="docTitleEditable" contenteditable="true" spellcheck="false">${escapeHtml(p.title)}</div>
+          </div>
+        </div>
+
+        ${bodyHtml}
+      </article>
+    `;
+
+    bindPageEvents(blocks);
+  }
+
+  function bindPageEvents(blocks) {
+    const p = state.currentPage;
+    if (!p) return;
+
+    document.getElementById('btnPageRefreshInline')?.addEventListener('click', () => {
+      void openPage(p.id, { pushHistory: false, silent: false });
+    });
+
+    // 标题行内编辑保存
+    const titleEl = document.getElementById('docTitleEditable');
+    let origTitle = p.title;
+    titleEl?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        titleEl.blur();
+      }
+    });
+    titleEl?.addEventListener('blur', async () => {
+      const next = (titleEl.textContent || '').trim();
+      if (!next || next === origTitle) {
+        titleEl.textContent = origTitle;
+        return;
+      }
+      origTitle = next;
+      p.title = next;
+      setSyncIndicator('正在保存标题...');
+      try {
+        await apiJson('/api/page/update', {
+          method: 'POST',
+          body: JSON.stringify({ pageId: p.id, action: 'update_title', title: next }),
+        });
+        setSyncIndicator('已保存', 1800);
+        renderTopbar();
+        notifyHostContext();
+      } catch (err) {
+        setSyncIndicator('');
+        showToast(`保存标题失败：${err.message}`);
+      }
+    });
+
+    // 图标与子页面快捷操作
+    const openIconModal = () => {
+      const emojis = ['📝', '📘', '🚀', '💡', '✅', '🧠', '🔬', '📊', '⚡', '🎯', '📌', '🗂️'];
+      openModal(`
+        <h3 class="modal-title">设置页面图标</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+          ${emojis.map((em) => `<button type="button" class="ghost-btn" style="font-size:18px;width:42px;padding:0;" data-pick-emoji="${em}">${em}</button>`).join('')}
+        </div>
+        <label class="field-label">或输入任意 Emoji（留空则移除图标）</label>
+        <input class="field-input" id="customEmojiInput" value="${escapeHtml(p.icon || '')}" placeholder="例如 🚀" />
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" id="modalCancel">取消</button>
+          <button type="button" class="solid-btn" id="modalConfirmIcon">保存图标</button>
+        </div>
+      `);
+      modalBox.querySelectorAll('[data-pick-emoji]').forEach((b) => {
+        b.addEventListener('click', () => {
+          document.getElementById('customEmojiInput').value = b.getAttribute('data-pick-emoji');
+        });
+      });
+      document.getElementById('modalCancel')?.addEventListener('click', closeModal);
+      document.getElementById('modalConfirmIcon')?.addEventListener('click', async () => {
+        const val = document.getElementById('customEmojiInput').value.trim() || 'none';
+        closeModal();
+        setSyncIndicator('正在更新图标...');
+        try {
+          await apiJson('/api/page/update', {
+            method: 'POST',
+            body: JSON.stringify({ pageId: p.id, action: 'update_icon', icon: val }),
+          });
+          p.icon = val === 'none' ? null : val;
+          setSyncIndicator('已保存', 1500);
+          renderAll();
+        } catch (err) {
+          setSyncIndicator('');
+          showToast(err.message);
+        }
+      });
+    };
+    document.getElementById('btnPickIcon')?.addEventListener('click', openIconModal);
+    document.getElementById('docIconBtn')?.addEventListener('click', openIconModal);
+    document.getElementById('btnNewChildPage')?.addEventListener('click', () => openCreatePageModal(p.id));
+    document.getElementById('btnQuickRaw')?.addEventListener('click', () => {
+      state.rawMode = !state.rawMode;
+      state.editingBlockIdx = -1;
+      renderAll();
+    });
+
+    // 源码模式保存
+    document.getElementById('btnCancelRaw')?.addEventListener('click', () => {
+      state.rawMode = false;
+      renderAll();
+    });
+    document.getElementById('btnSaveRaw')?.addEventListener('click', async () => {
+      const nextMd = document.getElementById('rawMarkdownEditor')?.value ?? '';
+      setSyncIndicator('正在同步正文...');
+      try {
+        await apiJson('/api/page/update', {
+          method: 'POST',
+          body: JSON.stringify({ pageId: p.id, action: 'replace_content', newStr: nextMd }),
+        });
+        p.markdown = nextMd;
+        state.rawMode = false;
+        setSyncIndicator('已同步到 Notion', 2000);
+        renderAll();
+      } catch (err) {
+        setSyncIndicator('');
+        showToast(`同步失败：${err.message}`);
+      }
+    });
+
+    // 复制代码块
+    mainScroll.querySelectorAll('[data-copy-code]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idx = Number(btn.getAttribute('data-copy-code'));
+        const blk = blocks[idx];
+        if (!blk) return;
+        try {
+          await navigator.clipboard.writeText(blk.code);
+          showToast('已复制代码');
+        } catch {
+          showToast('复制失败');
+        }
+      });
+    });
+
+    // 勾选 / 取消待办事项即时同步（同时兼容 - [ ] 与 <todo checked="...">）
+    mainScroll.querySelectorAll('[data-toggle-todo]').forEach((cb) => {
+      cb.addEventListener('change', async () => {
+        const idx = Number(cb.getAttribute('data-toggle-todo'));
+        const blk = blocks[idx];
+        if (!blk) return;
+        const checked = cb.checked;
+        const oldRaw = blk.raw;
+        const newRaw = blk.xmlTodo
+          ? oldRaw.replace(/checked="(?:true|false)"/i, `checked="${checked ? 'true' : 'false'}"`)
+          : `${blk.prefix}[${checked ? 'x' : ' '}] ${blk.text}`;
+        cb.closest('.blk-todo')?.classList.toggle('is-checked', checked);
+        setSyncIndicator('正在同步待办...');
+        try {
+          await apiJson('/api/page/update', {
+            method: 'POST',
+            body: JSON.stringify({ pageId: p.id, action: 'update_content', oldStr: oldRaw, newStr: newRaw }),
+          });
+          p.markdown = replaceOnce(p.markdown, oldRaw, newRaw);
+          setSyncIndicator('已保存', 1500);
+          renderPageView();
+        } catch (err) {
+          cb.checked = !checked;
+          cb.closest('.blk-todo')?.classList.toggle('is-checked', !checked);
+          setSyncIndicator('');
+          showToast(`更新待办失败：${err.message}`);
+        }
+      });
+    });
+
+    // 图片点击放大灯箱 & 目录跳转
+    const lightbox = document.getElementById('lightboxBackdrop');
+    const lightboxImg = document.getElementById('lightboxImg');
+    mainScroll.querySelectorAll('[data-zoom-img]').forEach((img) => {
+      img.addEventListener('click', () => {
+        if (!lightbox || !lightboxImg) return;
+        lightboxImg.src = img.getAttribute('data-zoom-img') || img.src;
+        lightbox.classList.add('is-open');
+      });
+    });
+    mainScroll.querySelectorAll('[data-scroll-to]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-scroll-to');
+        if (targetId) document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    // 点击编辑 / 双击块编辑
+    const enterEdit = (idx) => {
+      state.editingBlockIdx = idx;
+      renderPageView();
+      const ed = document.getElementById('activeBlockEditor');
+      if (ed) {
+        ed.focus();
+        ed.setSelectionRange(ed.value.length, ed.value.length);
+      }
+    };
+    mainScroll.querySelectorAll('[data-edit-block]').forEach((btn) => {
+      btn.addEventListener('click', () => enterEdit(Number(btn.getAttribute('data-edit-block'))));
+    });
+    mainScroll.querySelectorAll('[data-dblclick-edit]').forEach((el) => {
+      el.addEventListener('dblclick', () => enterEdit(Number(el.getAttribute('data-dblclick-edit'))));
+    });
+
+    // 行内块编辑器保存/取消
+    const activeEd = document.getElementById('activeBlockEditor');
+    const saveActiveBlock = async () => {
+      const idx = state.editingBlockIdx;
+      const blk = blocks[idx];
+      if (!blk || !activeEd) return;
+      const nextRaw = activeEd.value;
+      if (nextRaw === blk.raw) {
+        state.editingBlockIdx = -1;
+        renderPageView();
+        return;
+      }
+      setSyncIndicator('正在保存修改...');
+      try {
+        await apiJson('/api/page/update', {
+          method: 'POST',
+          body: JSON.stringify({ pageId: p.id, action: 'update_content', oldStr: blk.raw, newStr: nextRaw }),
+        });
+        p.markdown = replaceOnce(p.markdown, blk.raw, nextRaw);
+        state.editingBlockIdx = -1;
+        setSyncIndicator('已保存', 1600);
+        renderPageView();
+      } catch (err) {
+        setSyncIndicator('');
+        showToast(`保存失败：${err.message}`);
+      }
+    };
+    document.getElementById('btnCancelBlockEdit')?.addEventListener('click', () => {
+      state.editingBlockIdx = -1;
+      renderPageView();
+    });
+    document.getElementById('btnSaveBlockEdit')?.addEventListener('click', () => void saveActiveBlock());
+    activeEd?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        state.editingBlockIdx = -1;
+        renderPageView();
+      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void saveActiveBlock();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const s = activeEd.selectionStart;
+        const end = activeEd.selectionEnd;
+        activeEd.value = activeEd.value.slice(0, s) + '    ' + activeEd.value.slice(end);
+        activeEd.selectionStart = activeEd.selectionEnd = s + 4;
+      }
+    });
+
+    // 子页面与行内链接跳转
+    mainScroll.querySelectorAll('[data-open-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-open-id');
+        if (id) void openPage(id);
+      });
+    });
+    mainScroll.querySelectorAll('[data-notion-url]').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const u = a.getAttribute('data-notion-url');
+        if (u) void openPage(u);
+      });
+    });
+    mainScroll.querySelectorAll('[data-external-url]').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const u = a.getAttribute('data-external-url');
+        if (u) openExternalUrl(u);
+      });
+    });
+
+    // 底部「按 / 插入区块」斜杠菜单绑定
+    bindSlashComposer(p);
+  }
+
+  function replaceOnce(src, oldStr, newStr) {
+    const idx = String(src || '').indexOf(oldStr);
+    if (idx === -1) return src;
+    return src.slice(0, idx) + newStr + src.slice(idx + oldStr.length);
+  }
+
+  function bindSlashComposer(page) {
+    const input = document.getElementById('slashInput');
+    const menu = document.getElementById('slashMenu');
+    if (!input || !menu) return;
+
+    const getFiltered = () => {
+      const q = state.slashFilter.toLowerCase();
+      if (!q) return SLASH_COMMANDS;
+      return SLASH_COMMANDS.filter(
+        (c) => c.id.includes(q) || c.name.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q)
+      );
+    };
+
+    const renderMenu = () => {
+      if (!state.slashOpen) {
+        menu.classList.remove('is-open');
+        return;
+      }
+      const list = getFiltered();
+      if (state.slashSelectedIdx >= list.length) state.slashSelectedIdx = 0;
+      menu.innerHTML = `
+        <div class="slash-menu-title">插入区块</div>
+        ${
+          list.length === 0
+            ? `<div style="padding:10px;font-size:12px;color:var(--text-muted);text-align:center;">无匹配区块</div>`
+            : list
+                .map(
+                  (cmd, idx) => `
+              <button type="button" class="slash-item ${idx === state.slashSelectedIdx ? 'is-selected' : ''}" data-slash-id="${cmd.id}">
+                <span class="slash-item-icon">${escapeHtml(cmd.icon)}</span>
+                <div>
+                  <div class="slash-item-name">${escapeHtml(cmd.name)}</div>
+                  <div class="slash-item-desc">${escapeHtml(cmd.desc)}</div>
+                </div>
+              </button>`
+                )
+                .join('')
+        }
+      `;
+      menu.classList.add('is-open');
+      menu.querySelectorAll('[data-slash-id]').forEach((btn) => {
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          const cmd = SLASH_COMMANDS.find((c) => c.id === btn.getAttribute('data-slash-id'));
+          if (cmd) applySlashCommand(cmd, page, input);
+        });
+      });
+    };
+
+    input.addEventListener('input', () => {
+      const val = input.value;
+      if (val.startsWith('/')) {
+        state.slashOpen = true;
+        state.slashFilter = val.slice(1).trim();
+        state.slashSelectedIdx = 0;
+        renderMenu();
+      } else {
+        state.slashOpen = false;
+        menu.classList.remove('is-open');
+      }
+    });
+
+    input.addEventListener('keydown', async (e) => {
+      if (state.slashOpen) {
+        const list = getFiltered();
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          state.slashSelectedIdx = list.length ? (state.slashSelectedIdx + 1) % list.length : 0;
+          renderMenu();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          state.slashSelectedIdx = list.length ? (state.slashSelectedIdx - 1 + list.length) % list.length : 0;
+          renderMenu();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          state.slashOpen = false;
+          renderMenu();
+          return;
+        }
+        if (e.key === 'Enter' && !e.isComposing && list[state.slashSelectedIdx]) {
+          e.preventDefault();
+          applySlashCommand(list[state.slashSelectedIdx], page, input);
+          return;
+        }
+      }
+
+      if (e.key === 'Enter' && !e.isComposing) {
+        const text = input.value.trim();
+        if (!text) return;
+        e.preventDefault();
+        input.value = '';
+        await appendMarkdownToCurrentPage(text);
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        state.slashOpen = false;
+        menu.classList.remove('is-open');
+      }, 150);
+    });
+  }
+
+  function applySlashCommand(cmd, page, input) {
+    state.slashOpen = false;
+    document.getElementById('slashMenu')?.classList.remove('is-open');
+    input.value = '';
+
+    if (cmd.instant) {
+      void appendMarkdownToCurrentPage(cmd.instant);
+      return;
+    }
+    if (cmd.modal === 'subpage') {
+      openCreatePageModal(page.id);
+      return;
+    }
+    if (cmd.modal === 'code') {
+      openModal(`
+        <h3 class="modal-title">插入代码块</h3>
+        <label class="field-label">编程语言（可选，如 python / js / bash）</label>
+        <input class="field-input" id="codeLangInput" value="python" placeholder="python" />
+        <label class="field-label">代码内容</label>
+        <textarea class="field-textarea" id="codeBodyInput" rows="7" style="font-family:Consolas,monospace;font-size:13px;" placeholder="输入代码..."></textarea>
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" id="modalCancel">取消</button>
+          <button type="button" class="solid-btn" id="modalInsertCode">插入并同步</button>
+        </div>
+      `);
+      document.getElementById('modalCancel')?.addEventListener('click', closeModal);
+      document.getElementById('modalInsertCode')?.addEventListener('click', async () => {
+        const lang = (document.getElementById('codeLangInput').value || '').trim();
+        const body = document.getElementById('codeBodyInput').value || '';
+        if (!body.trim()) return;
+        closeModal();
+        await appendMarkdownToCurrentPage(`\`\`\`${lang}\n${body}\n\`\`\``);
+      });
+      document.getElementById('codeBodyInput')?.focus();
+      return;
+    }
+    if (cmd.modal === 'callout') {
+      openModal(`
+        <h3 class="modal-title">插入标注框 (Callout)</h3>
+        <label class="field-label">图标 Emoji</label>
+        <input class="field-input" id="calloutIconInput" value="💡" />
+        <label class="field-label">标注内容</label>
+        <textarea class="field-textarea" id="calloutBodyInput" rows="4" placeholder="输入重点提示..."></textarea>
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" id="modalCancel">取消</button>
+          <button type="button" class="solid-btn" id="modalInsertCallout">插入并同步</button>
+        </div>
+      `);
+      document.getElementById('modalCancel')?.addEventListener('click', closeModal);
+      document.getElementById('modalInsertCallout')?.addEventListener('click', async () => {
+        const icon = (document.getElementById('calloutIconInput').value || '💡').trim();
+        const body = (document.getElementById('calloutBodyInput').value || '').trim();
+        if (!body) return;
+        closeModal();
+        await appendMarkdownToCurrentPage(`<callout icon="${icon}">\n${body}\n</callout>`);
+      });
+      document.getElementById('calloutBodyInput')?.focus();
+      return;
+    }
+
+    input.value = cmd.prefix || '';
+    input.focus();
+  }
+
+  async function appendMarkdownToCurrentPage(mdSnippet) {
+    const p = state.currentPage;
+    if (!p) return;
+    setSyncIndicator('正在插入区块...');
+    try {
+      await apiJson('/api/page/update', {
+        method: 'POST',
+        body: JSON.stringify({
+          pageId: p.id,
+          action: 'insert_block',
+          position: 'end',
+          content: mdSnippet,
+        }),
+      });
+      p.markdown = p.markdown ? `${p.markdown.replace(/\s+$/, '')}\n\n${mdSnippet}` : mdSnippet;
+      setSyncIndicator('已同步', 1600);
+      renderPageView();
+      document.getElementById('slashInput')?.focus();
+    } catch (err) {
+      setSyncIndicator('');
+      showToast(`插入失败：${err.message}`);
+    }
+  }
+
+  // --- 弹窗管理 ---
+  function openModal(html) {
+    modalBox.innerHTML = html;
+    modalBackdrop.classList.add('is-open');
+  }
+  function closeModal() {
+    modalBackdrop.classList.remove('is-open');
+    modalBox.innerHTML = '';
+  }
+  modalBackdrop.addEventListener('click', (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+  document.getElementById('lightboxBackdrop')?.addEventListener('click', () => {
+    document.getElementById('lightboxBackdrop')?.classList.remove('is-open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      document.getElementById('lightboxBackdrop')?.classList.remove('is-open');
+    }
+  });
+
+  function openCreatePageModal(parentPageId = '') {
+    const isChild = Boolean(parentPageId);
+    openModal(`
+      <h3 class="modal-title">${isChild ? '新建子页面' : '新建 Notion 页面'}</h3>
+      <label class="field-label">页面标题</label>
+      <input class="field-input" id="newPageTitleInput" placeholder="输入笔记标题..." />
+      <label class="field-label">初始内容（可选，支持 Markdown）</label>
+      <textarea class="field-textarea" id="newPageContentInput" rows="4" placeholder="留空则创建空白笔记..."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn" id="modalCancel">取消</button>
+        <button type="button" class="solid-btn" id="modalConfirmCreate">创建并打开</button>
+      </div>
+    `);
+    const titleInput = document.getElementById('newPageTitleInput');
+    const contentInput = document.getElementById('newPageContentInput');
+    const confirmBtn = document.getElementById('modalConfirmCreate');
+
+    const submitCreate = async () => {
+      const title = titleInput.value.trim() || '无标题笔记';
+      const content = contentInput.value;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '创建中...';
+      try {
+        const res = await apiJson('/api/page/create', {
+          method: 'POST',
+          body: JSON.stringify({ title, content, parentPageId }),
+        });
+        closeModal();
+        showToast(`已创建「${title}」`);
+        if (res.page && (res.page.id || res.page.url)) {
+          await openPage(res.page.id || res.page.url);
+        } else {
+          await loadHome(true);
+        }
+      } catch (err) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '创建并打开';
+        showToast(`创建失败：${err.message}`);
+      }
+    };
+
+    document.getElementById('modalCancel')?.addEventListener('click', closeModal);
+    confirmBtn?.addEventListener('click', () => void submitCreate());
+    titleInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        void submitCreate();
+      }
+    });
+    titleInput?.focus();
+  }
+
+  let syncClearTimer = null;
+  function setSyncIndicator(text, autoClearMs = 0) {
+    state.syncText = text;
+    clearTimeout(syncClearTimer);
+    const pill = document.getElementById('syncPill');
+    if (pill) {
+      pill.textContent = text;
+      pill.classList.toggle('is-visible', Boolean(text));
+    }
+    if (autoClearMs > 0) {
+      syncClearTimer = setTimeout(() => setSyncIndicator(''), autoClearMs);
+    }
+  }
+
+  // --- 数据加载与动作 ---
+  async function triggerOAuthLogin() {
+    const btn = document.getElementById('btnStartOAuth');
+    const statusEl = document.getElementById('authStatus');
+    const fallbackBtn = document.getElementById('btnOpenAuthFallback');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = '正在准备 Notion 官方 OAuth 授权链接...';
+    try {
+      const res = await fetch('/api/auth/start', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.authUrl) {
+        throw new Error(data.error || '无法生成授权链接');
+      }
+      state.lastAuthUrl = data.authUrl;
+      openExternalUrl(data.authUrl);
+      if (statusEl) statusEl.textContent = '已在浏览器打开 Notion 授权页，请在浏览器点击允许访问...';
+      if (fallbackBtn) fallbackBtn.style.display = 'inline-block';
+      startAuthPolling();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `启动授权失败：${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function startAuthPolling() {
+    clearInterval(state.authPollTimer);
+    let ticks = 0;
+    state.authPollTimer = setInterval(async () => {
+      ticks++;
+      if (ticks > 120) {
+        clearInterval(state.authPollTimer);
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/status', { cache: 'no-store' });
+        const data = await res.json();
+        if (data && data.connected) {
+          clearInterval(state.authPollTimer);
+          state.connected = true;
+          state.workspace = data.workspace;
+          state.user = data.user;
+          showToast('Notion 授权成功');
+          await loadHome(true);
+        }
+      } catch {}
+    }, 1500);
+  }
+
+  async function loadHome(forceRefresh = false) {
+    if (state.view !== 'home') {
+      state.view = 'loading';
+      renderAll();
+    }
+    try {
+      const data = await apiJson(`/api/home${forceRefresh ? '?refresh=1' : ''}`);
+      state.connected = true;
+      state.workspace = data.workspace;
+      state.user = data.user;
+      state.recentPages = data.recentPages || [];
+      state.privatePages = data.privatePages || [];
+      state.favoritePages = data.favoritePages || [];
+      state.currentPage = null;
+      state.view = 'home';
+      renderAll();
+    } catch (err) {
+      if (state.view !== 'auth') {
+        showToast(err.message);
+      }
+    }
+  }
+
+  async function loadAllPages(tab, cursor = '', append = false) {
+    if (!append) {
+      state.allResults = [];
+      state.allNextCursor = '';
+      renderTopbar();
+      mainScroll.innerHTML = `<div class="loading-center"><div class="spinner"></div><div>加载页面列表中...</div></div>`;
+    }
+    try {
+      const data = await apiJson(
+        `/api/pages/all?tab=${encodeURIComponent(tab)}&limit=36${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+      );
+      state.allResults = append ? [...state.allResults, ...(data.results || [])] : data.results || [];
+      state.allNextCursor = data.nextCursor || '';
+      state.view = 'all';
+      renderAll();
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
+  async function runHomeSearch(query) {
+    const q = String(query || '').trim();
+    if (!q) return;
+    state.searchLoading = true;
+    renderHomeView();
+    const inp = document.getElementById('homeSearchInput');
+    if (inp) {
+      inp.focus();
+      inp.setSelectionRange(inp.value.length, inp.value.length);
+    }
+    try {
+      const data = await apiJson(`/api/search?q=${encodeURIComponent(q)}&limit=15`);
+      if (state.searchQuery.trim() !== q) return;
+      state.searchResults = data.results || [];
+    } catch (err) {
+      state.searchResults = [];
+      showToast(err.message);
+    } finally {
+      state.searchLoading = false;
+      renderHomeView();
+      const inp2 = document.getElementById('homeSearchInput');
+      if (inp2) {
+        inp2.focus();
+        inp2.setSelectionRange(inp2.value.length, inp2.value.length);
+      }
+    }
+  }
+
+  async function openPage(idOrUrl, opts = {}) {
+    const { pushHistory = true, silent = false } = opts;
+    if (pushHistory && state.currentPage?.id && state.currentPage.id !== idOrUrl) {
+      state.pageHistory.push(state.currentPage.id);
+      if (state.pageHistory.length > 30) state.pageHistory.shift();
+    }
+    state.rawMode = false;
+    state.editingBlockIdx = -1;
+    if (!silent) {
+      state.view = 'loading';
+      renderAll();
+    }
+    try {
+      const data = await apiJson(`/api/page?id=${encodeURIComponent(idOrUrl)}`);
+      state.currentPage = data.page;
+      state.view = 'page';
+      renderAll();
+      mainScroll.scrollTop = 0;
+    } catch (err) {
+      if (state.view !== 'auth') {
+        showToast(`打开页面失败：${err.message}`);
+        state.view = state.currentPage ? 'page' : 'home';
+        renderAll();
+      }
+    }
+  }
+
+  function renderAll() {
+    renderTopbar();
+    renderMain();
+    notifyHostContext();
+  }
+
+  // --- 全局点击关闭弹出层 + 划选正文同步给宿主悬浮提问框 ---
+  document.addEventListener('pointerdown', (e) => {
+    if (state.accountMenuOpen && !e.target.closest('.popover-wrap')) {
+      state.accountMenuOpen = false;
+      document.getElementById('accountMenu')?.classList.remove('is-open');
+    }
+  });
+
+  let selectionTimer = null;
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      if (state.view !== 'page') {
+        postToHost({ type: 'AGY_NOTION_SELECTION_CHANGE', text: '' });
+        return;
+      }
+      const sel = window.getSelection();
+      const txt = sel ? String(sel.toString() || '').trim() : '';
+      // 忽略输入框/标题编辑器里的选区
+      const active = document.activeElement;
+      if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return;
+      postToHost({
+        type: 'AGY_NOTION_SELECTION_CHANGE',
+        text: txt.length >= 2 ? txt.slice(0, 1200) : '',
+      });
+    }, 180);
+  });
+
+  // 监听宿主主题、分栏和刷新指令
+  window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'AGY_NOTION_HOST_STATE') {
+      if (data.theme === 'dark' || data.theme === 'light') {
+        document.documentElement.setAttribute('data-theme', data.theme);
+      }
+      if (data.layout) {
+        state.layout = data.layout === 'split' ? 'split' : 'fullscreen';
+        renderTopbar();
+      }
+    } else if (data.type === 'AGY_NOTION_REFRESH_PAGE') {
+      if (state.view === 'page' && state.currentPage?.id) {
+        void openPage(state.currentPage.id, { pushHistory: false, silent: true }).then(() => {
+          showToast('已从 Notion 刷新当前笔记');
+        });
+      } else if (state.view === 'home') {
+        void loadHome(true);
+      }
+    }
+  });
+
+  // 初始化引导
+  async function bootstrap() {
+    renderAll();
+    try {
+      const res = await fetch('/api/auth/status', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.connected) {
+        state.connected = true;
+        state.workspace = data.workspace;
+        state.user = data.user;
+        await loadHome(false);
+      } else {
+        state.connected = false;
+        state.view = 'auth';
+        renderAll();
+      }
+    } catch (err) {
+      state.view = 'auth';
+      renderAll();
+      showToast(`服务连接异常：${err?.message || err}`);
+    }
+  }
+
+  void bootstrap();
+})();
+</script>
+</body>
+</html>

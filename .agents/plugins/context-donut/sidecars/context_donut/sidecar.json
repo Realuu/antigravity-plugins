@@ -1,0 +1,20 @@
+{
+  "command": "node",
+  "args": [
+    "server.mjs"
+  ],
+  "display_name": "Context Donut 上下文监控",
+  "description": "像 Codex 一样实时监控 Antigravity 会话的上下文 Token 占用、缓存命中率与每步消耗趋势",
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "Context Donut 上下文监控",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "上下文甜甜圈 (Context Donut)"
+      }
+    ]
+  }
+}

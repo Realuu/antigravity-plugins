@@ -1,0 +1,20 @@
+{
+  "command": "node",
+  "args": [
+    "server.mjs"
+  ],
+  "display_name": "WSL 终端",
+  "description": "在右侧辅助面板打开原生交互式 WSL 终端（支持多标签页、工作区自动映射与后台会话保持）",
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "WSL 终端",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "WSL 终端"
+      }
+    ]
+  }
+}
