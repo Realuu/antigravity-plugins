@@ -1,0 +1,12 @@
+{
+  "tab-suggest-stop-trigger": {
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./scripts/stop-hook.mjs",
+        "timeout": 5
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "command": "node",
+  "args": [
+    "server.mjs"
+  ],
+  "display_name": "Tab 智能补全",
+  "description": "配置与管理对话框智能下一步补全（Vertex AI DeepSeek V4.1 Flash），管理 JSON 凭证、测试连接并查看实时生成状态",
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "Tab 智能补全",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "Tab 智能补全 (Tab Suggest)"
+      }
+    ]
+  }
+}

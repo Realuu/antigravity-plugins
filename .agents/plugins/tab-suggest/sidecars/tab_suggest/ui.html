@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tab 智能补全 (Tab Suggest)</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #161922;
+      --border: #262b38;
+      --fg: #f3f4f6;
+      --muted: #9ca3af;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #ef4444;
+      --input-bg: rgba(255, 255, 255, 0.045);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --input-bg: #f1f5f9;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px 14px 28px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.14);
+      color: var(--emerald);
+    }
+    .badge[data-warn="true"] {
+      background: rgba(245, 158, 11, 0.16);
+      color: var(--amber);
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0 0 10px 0;
+      letter-spacing: 0.02em;
+    }
+    .row-between {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .field {
+      margin-top: 10px;
+    }
+    .label {
+      display: block;
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .input, .textarea {
+      width: 100%;
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--fg);
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      outline: none;
+    }
+    .input:focus, .textarea:focus {
+      border-color: #38bdf8;
+    }
+    .textarea {
+      min-height: 74px;
+      resize: vertical;
+    }
+    .grid2 {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--fg);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.15s ease, background-color 0.15s ease;
+    }
+    .btn:hover {
+      background: rgba(128, 128, 128, 0.1);
+    }
+    .btn-primary {
+      flex: 1;
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+    .btn-sm {
+      height: 24px;
+      padding: 0 8px;
+      font-size: 11px;
+    }
+    .status-msg {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--input-bg);
+      font-size: 12px;
+      word-break: break-word;
+      display: none;
+    }
+    .status-msg.visible {
+      display: block;
+    }
+    .recent-item {
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--input-bg);
+      margin-top: 7px;
+      font-size: 12px;
+    }
+    .recent-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+    .empty-hint {
+      font-size: 12px;
+      color: var(--muted);
+      padding: 4px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title-wrap">
+      <span class="title">Tab 智能下一步补全</span>
+    </div>
+    <span class="badge" id="credBadge">检测中...</span>
+  </div>
+
+  <div class="card">
+    <div class="row-between">
+      <div>
+        <div style="font-weight:600;">启用任务结束自动补全</div>
+        <div style="font-size:11.5px;color:var(--muted);">每轮结束后在空白对话框显示幽灵灰字，按 Tab 填入</div>
+      </div>
+      <input type="checkbox" id="enabledToggle" checked style="width:16px;height:16px;cursor:pointer;" />
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Vertex AI 模型与凭证配置</div>
+
+    <div class="field" style="margin-top:0;">
+      <div class="row-between" style="margin-bottom:4px;">
+        <label class="label" style="margin:0;">Google Cloud JSON 凭证 (SA / ADC)</label>
+        <button type="button" class="btn btn-sm" id="pickFileBtn">选择 .json 文件</button>
+      </div>
+      <input type="file" id="fileInput" accept=".json,application/json" style="display:none;" />
+      <textarea class="textarea" id="credJson" placeholder="点击「选择 .json 文件」或在此直接粘贴 JSON 凭证内容..."></textarea>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label class="label">区域 (Location)</label>
+        <input type="text" class="input" id="locationInput" value="global" />
+      </div>
+      <div>
+        <label class="label">Project ID</label>
+        <input type="text" class="input" id="projectInput" placeholder="从凭证自动提取" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="label">模型 ID (Vertex MaaS)</label>
+      <input type="text" class="input" id="modelInput" value="deepseek-ai/deepseek-v4.1-flash-maas" />
+    </div>
+
+    <div class="btn-row">
+      <button type="button" class="btn btn-primary" id="saveTestBtn">保存并测试连接</button>
+    </div>
+    <div class="status-msg" id="statusBox"></div>
+  </div>
+
+  <div class="card">
+    <div class="row-between" style="margin-bottom:6px;">
+      <div class="section-title" style="margin:0;">最近会话补全状态</div>
+      <button type="button" class="btn btn-sm" id="refreshBtn">刷新</button>
+    </div>
+    <div id="recentList" class="empty-hint">暂无近期触发记录</div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://127.0.0.1:45794';
+    const credBadge = document.getElementById('credBadge');
+    const enabledToggle = document.getElementById('enabledToggle');
+    const pickFileBtn = document.getElementById('pickFileBtn');
+    const fileInput = document.getElementById('fileInput');
+    const credJson = document.getElementById('credJson');
+    const locationInput = document.getElementById('locationInput');
+    const projectInput = document.getElementById('projectInput');
+    const modelInput = document.getElementById('modelInput');
+    const saveTestBtn = document.getElementById('saveTestBtn');
+    const statusBox = document.getElementById('statusBox');
+    const recentList = document.getElementById('recentList');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    let isEditingFields = false;
+    [credJson, locationInput, projectInput, modelInput].forEach((el) => {
+      el.addEventListener('focus', () => { isEditingFields = true; });
+      el.addEventListener('blur', () => { isEditingFields = false; });
+    });
+
+    function showStatus(text, isErr = false) {
+      statusBox.textContent = text;
+      statusBox.style.color = isErr ? 'var(--rose)' : 'var(--emerald)';
+      statusBox.classList.toggle('visible', Boolean(text));
+    }
+
+    async function loadStatus() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/status`, { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const st = await resp.json();
+        enabledToggle.checked = Boolean(st.enabled);
+        if (!isEditingFields) {
+          locationInput.value = st.location || 'global';
+          projectInput.value = st.projectId || '';
+          modelInput.value = st.model || 'deepseek-ai/deepseek-v4.1-flash-maas';
+        }
+        if (st.hasCredentials) {
+          credBadge.textContent = `已就绪 · ${st.projectId}`;
+          credBadge.removeAttribute('data-warn');
+          if (!credJson.value.trim()) {
+            credJson.placeholder = `已安全绑定凭证 (${st.clientEmail || st.credentialType || 'JSON'})。如需更换可重新选择或粘贴...`;
+          }
+        } else {
+          credBadge.textContent = '待导入凭证';
+          credBadge.setAttribute('data-warn', 'true');
+        }
+      } catch {
+        credBadge.textContent = '本地服务连接中';
+        credBadge.setAttribute('data-warn', 'true');
+      }
+    }
+
+    async function loadRecent() {
+      try {
+        const resp = await fetch(`${API_BASE}/api/recent`, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const items = data.items || [];
+        if (items.length === 0) {
+          recentList.innerHTML = '暂无近期触发记录';
+          return;
+        }
+        const mapLabel = {
+          ready: '待按 Tab 接受',
+          accepted: '已按 Tab 填入',
+          dismissed: '已忽略',
+          generating: '生成中...',
+          error: '调用异常',
+          idle: '空闲',
+        };
+        recentList.innerHTML = items.map((it) => {
+          const shortCid = String(it.conversationId || '').slice(0, 8);
+          const tag = mapLabel[it.status] || it.status;
+          const lat = it.latencyMs ? ` · ${it.latencyMs}ms` : '';
+          const body = it.error
+            ? `<span style="color:var(--rose)">${it.error}</span>`
+            : (it.suggestion || '<span style="color:var(--muted)">（已消费或无建议）</span>');
+          return `<div class="recent-item"><div class="recent-meta"><span>会话 ${shortCid}…</span><span>${tag}${lat}</span></div><div>${body}</div></div>`;
+        }).join('');
+      } catch {}
+    }
+
+    pickFileBtn.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const txt = String(reader.result || '').trim();
+        credJson.value = txt;
+        try {
+          const obj = JSON.parse(txt);
+          if (obj.project_id || obj.quota_project_id) {
+            projectInput.value = obj.project_id || obj.quota_project_id;
+          }
+          showStatus(`已读取 ${f.name}，点击「保存并测试连接」立即生效`);
+        } catch (err) {
+          showStatus(`JSON 解析错误: ${err.message}`, true);
+        }
+      };
+      reader.readAsText(f, 'utf8');
+    });
+
+    enabledToggle.addEventListener('change', async () => {
+      try {
+        await fetch(`${API_BASE}/api/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: Boolean(enabledToggle.checked) }),
+        });
+        await loadStatus();
+      } catch {}
+    });
+
+    saveTestBtn.addEventListener('click', async () => {
+      saveTestBtn.disabled = true;
+      showStatus('正在保存配置并测试 Vertex AI 连接...');
+      try {
+        const payload = {
+          enabled: Boolean(enabledToggle.checked),
+          provider: 'vertex-maas',
+          location: locationInput.value.trim() || 'global',
+          projectId: projectInput.value.trim(),
+          model: modelInput.value.trim() || 'deepseek-ai/deepseek-v4.1-flash-maas',
+        };
+        if (credJson.value.trim().startsWith('{')) {
+          payload.credentialJson = credJson.value.trim();
+        }
+        const cfgResp = await fetch(`${API_BASE}/api/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const cfgData = await cfgResp.json();
+        if (!cfgResp.ok) throw new Error(cfgData.error || '保存失败');
+        credJson.value = '';
+        await loadStatus();
+
+        const testResp = await fetch(`${API_BASE}/api/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const testData = await testResp.json();
+        if (!testResp.ok) throw new Error(testData.error || '连接测试失败');
+        showStatus(`连接成功 (${testData.latencyMs}ms)！示例补全：${testData.suggestion}`);
+      } catch (err) {
+        showStatus(`失败: ${err.message}`, true);
+      } finally {
+        saveTestBtn.disabled = false;
+      }
+    });
+
+    refreshBtn.addEventListener('click', () => {
+      void loadStatus();
+      void loadRecent();
+    });
+
+    void loadStatus();
+    void loadRecent();
+    setInterval(() => {
+      void loadStatus();
+      void loadRecent();
+    }, 3000);
+  </script>
+</body>
+</html>
