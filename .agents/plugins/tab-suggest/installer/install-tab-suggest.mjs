@@ -477,12 +477,19 @@ async function runInstall() {
     );
   }
 
-  console.log('\n=== [3/4] 启动/刷新本地 Vertex AI 智能补全服务 (127.0.0.1:45794) ===');
+  console.log('\n=== [3/4] 启动/刷新本地智能补全服务 (127.0.0.1:45794) ===');
   const serviceScript = path.join(activePluginDir, 'scripts', 'suggest-service.mjs');
   const st = await ensureLocalServiceStarted(serviceScript, hostPaths?.pidFilePath, true);
   if (st && st.ok) {
+    const channelLabel = st.provider === 'openai-compatible' ? 'OpenAI 兼容' : 'Vertex AI';
+    const activeModel = st.activeModel || st.model;
+    const credDesc = st.hasCredentials
+      ? st.provider === 'openai-compatible'
+        ? `已就绪 [${st.openaiKeyMasked || '本地免密钥'}]`
+        : `已绑定 ${st.projectId}`
+      : '待配置密钥/凭证';
     console.log(
-      `  -> 本地服务已就绪 (端口 45794, 模型: ${st.model}, 凭证状态: ${st.hasCredentials ? `已绑定 ${st.projectId}` : '待导入 JSON 凭证'})`
+      `  -> 本地服务已就绪 (端口 45794, 通道: ${channelLabel}, 模型: ${activeModel}, 凭证状态: ${credDesc})`
     );
   } else {
     console.log('  -> 提示: 本地服务将在 Antigravity 窗口活动中自动拉起。');
@@ -558,7 +565,7 @@ async function runStatus() {
   console.log(
     '4. 本地补全服务:',
     st && st.ok
-      ? `运行中 (127.0.0.1:${SERVICE_PORT}, 模型=${st.model}, 凭证=${st.hasCredentials ? `已就绪 [${st.projectId}]` : '待导入'})`
+      ? `运行中 (127.0.0.1:${SERVICE_PORT}, 通道=${st.provider === 'openai-compatible' ? 'OpenAI兼容' : 'VertexAI'}, 模型=${st.activeModel || st.model}, 凭证=${st.hasCredentials ? '已就绪' : '待配置'})`
       : '未运行'
   );
 }

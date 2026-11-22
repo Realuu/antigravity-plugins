@@ -424,9 +424,10 @@ export function startSuggestServer() {
           ok: true,
           pluginEnabled: pub.pluginEnabled,
           enabled: pub.enabled,
+          provider: pub.provider,
           hasCredentials: pub.hasCredentials,
           projectId: pub.projectId,
-          model: pub.model,
+          model: pub.activeModel || pub.model,
           state,
         });
         return;
@@ -460,7 +461,6 @@ export function startSuggestServer() {
           'projectId',
           'model',
           'openaiBaseUrl',
-          'openaiApiKey',
           'openaiModel',
         ];
         const patch = {};
@@ -468,6 +468,11 @@ export function startSuggestServer() {
           if (body[k] !== undefined) {
             patch[k] = body[k];
           }
+        }
+        if (body.clearOpenaiKey) {
+          patch.openaiApiKey = '';
+        } else if (typeof body.openaiApiKey === 'string' && body.openaiApiKey.trim()) {
+          patch.openaiApiKey = body.openaiApiKey.trim();
         }
         if (Object.keys(patch).length > 0) {
           saveConfig(patch);
@@ -485,6 +490,7 @@ export function startSuggestServer() {
         const result = await generateNextSuggestionFromMessages(sampleContext, body);
         sendJson(res, 200, {
           ok: true,
+          provider: result.provider,
           suggestion: result.suggestion,
           latencyMs: result.latencyMs,
           endpoint: result.endpoint,
@@ -576,12 +582,32 @@ if (process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === path.reso
     try {
       const raw = fs.readFileSync(keyPath, 'utf8');
       const info = saveCredentialsJson(raw);
+      saveConfig({ provider: 'vertex-maas' });
       console.log(`导入成功！类型: ${info.credentialType}, Project ID: ${info.projectId}, 账号: ${info.clientEmail}`);
       process.exit(0);
     } catch (err) {
       console.error('导入失败:', err.message);
       process.exit(1);
     }
+  } else if (cmd === 'set-openai') {
+    const baseUrl = process.argv[3];
+    const model = process.argv[4];
+    const apiKey = process.argv[5] || '';
+    if (!baseUrl || !model) {
+      console.error('用法: node suggest-service.mjs set-openai <baseUrl> <model> [apiKey]');
+      process.exit(1);
+    }
+    const patch = {
+      provider: 'openai-compatible',
+      openaiBaseUrl: baseUrl,
+      openaiModel: model,
+    };
+    if (apiKey) {
+      patch.openaiApiKey = apiKey;
+    }
+    saveConfig(patch);
+    console.log(JSON.stringify(getPublicStatus(), null, 2));
+    process.exit(0);
   } else if (cmd === 'test') {
     try {
       const sample =

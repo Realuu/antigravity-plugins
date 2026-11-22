@@ -1,5 +1,8 @@
 /**
- * Antigravity Tab Suggest — Google Cloud Vertex AI (DeepSeek V4.1 Flash) 客户端与凭证管理模块
+ * Antigravity Tab Suggest — 双通道模型客户端与凭证管理模块
+ * 支持通道：
+ *   1. openai-compatible : 通用 OpenAI Chat Completions 兼容接口（官方 / DeepSeek / OpenRouter / 硅基流动 / OneAPI / 本地 Ollama 等）
+ *   2. vertex-maas       : Google Cloud Vertex AI OpenAPI 端点（Service Account / ADC JSON 凭证）
  */
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -12,9 +15,11 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 import zlib from 'node:zlib';
 
-export const SERVICE_VERSION = '1.0.0';
+export const SERVICE_VERSION = '1.2.0';
 export const DEFAULT_MODEL = 'deepseek-ai/deepseek-v4.1-flash-maas';
 export const DEFAULT_LOCATION = 'global';
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.deepseek.com/v1';
+export const DEFAULT_OPENAI_MODEL = 'deepseek-chat';
 
 const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
@@ -62,6 +67,100 @@ export function isPluginDisabledInGlobalConfig() {
   return false;
 }
 
+export function normalizeProviderName(rawProvider) {
+  const p = String(rawProvider || '').trim().toLowerCase();
+  if (p === 'openai' || p === 'openai-compatible') return 'openai-compatible';
+  return 'vertex-maas';
+}
+
+export function isPrivateOrLocalHost(hostname) {
+  const h = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
+    return true;
+  }
+  if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
+  if (/^10\.\d+\.\d+\.\d+$/.test(h)) return true;
+  if (/^192\.168\.\d+\.\d+$/.test(h)) return true;
+  const m172 = h.match(/^172\.(\d+)\.\d+\.\d+$/);
+  if (m172) {
+    const second = Number(m172[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
+function ensureUrlProtocol(rawUrl) {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const hostCandidate = trimmed.split(/[/?#]/)[0].split(':')[0];
+  const scheme = isPrivateOrLocalHost(hostCandidate) ? 'http://' : 'https://';
+  return `${scheme}${trimmed}`;
+}
+
+export function isLocalOpenAIEndpoint(rawBaseUrl) {
+  try {
+    const withProto = ensureUrlProtocol(rawBaseUrl);
+    if (!withProto) return false;
+    const u = new URL(withProto.replace(/#+$/, ''));
+    return isPrivateOrLocalHost(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 将各种常见的 OpenAI 兼容接口地址规范化为最终的 /chat/completions 端点：
+ * - https://api.openai.com                  -> https://api.openai.com/v1/chat/completions
+ * - https://api.deepseek.com/v1             -> https://api.deepseek.com/v1/chat/completions
+ * - https://open.bigmodel.cn/api/paas/v4    -> https://open.bigmodel.cn/api/paas/v4/chat/completions
+ * - https://generativelanguage.../v1beta/openai -> .../v1beta/openai/chat/completions
+ * - https://custom.host/gateway#            -> https://custom.host/gateway/chat/completions (末尾 # 跳过自动补 /v1)
+ * - https://.../v1/chat/completions         -> 原样保留（含查询参数如 Azure api-version）
+ */
+export function normalizeOpenAIChatEndpoint(rawBaseUrl) {
+  let raw = String(rawBaseUrl || DEFAULT_OPENAI_BASE_URL).trim();
+  if (!raw) raw = DEFAULT_OPENAI_BASE_URL;
+
+  const forceRawPath = raw.endsWith('#');
+  if (forceRawPath) {
+    raw = raw.replace(/#+$/, '').trim();
+  }
+
+  const withProto = ensureUrlProtocol(raw);
+  let u;
+  try {
+    u = new URL(withProto);
+  } catch {
+    throw new Error(`无效的 OpenAI 接口地址: ${rawBaseUrl}`);
+  }
+
+  const cleanPath = u.pathname.replace(/\/+$/, '');
+
+  if (/\/chat\/completions$/i.test(cleanPath)) {
+    u.pathname = cleanPath;
+  } else if (forceRawPath) {
+    u.pathname = `${cleanPath}/chat/completions`;
+  } else if (!cleanPath) {
+    u.pathname = '/v1/chat/completions';
+  } else if (/\/(v\d+(?:beta\d*)?|openai)$/i.test(cleanPath)) {
+    u.pathname = `${cleanPath}/chat/completions`;
+  } else {
+    u.pathname = `${cleanPath}/v1/chat/completions`;
+  }
+
+  return u.toString();
+}
+
+export function maskApiKey(rawKey) {
+  const k = String(rawKey || '').trim();
+  if (!k) return '';
+  if (k.length <= 8) return '••••••••';
+  const prefix = k.slice(0, Math.min(4, k.indexOf('-') > 0 ? k.indexOf('-') + 1 : 3));
+  return `${prefix}••••${k.slice(-4)}`;
+}
+
 export function loadConfig() {
   const defaults = {
     enabled: true,
@@ -69,9 +168,9 @@ export function loadConfig() {
     location: DEFAULT_LOCATION,
     projectId: '',
     model: DEFAULT_MODEL,
-    openaiBaseUrl: 'https://api.deepseek.com/v1',
+    openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
     openaiApiKey: '',
-    openaiModel: 'deepseek-chat',
+    openaiModel: DEFAULT_OPENAI_MODEL,
     updatedAt: '',
   };
 
@@ -82,8 +181,12 @@ export function loadConfig() {
         return {
           ...defaults,
           ...raw,
+          provider: normalizeProviderName(raw.provider || defaults.provider),
           location: String(raw.location || defaults.location).trim() || DEFAULT_LOCATION,
           model: String(raw.model || defaults.model).trim() || DEFAULT_MODEL,
+          openaiBaseUrl: String(raw.openaiBaseUrl ?? defaults.openaiBaseUrl).trim() || DEFAULT_OPENAI_BASE_URL,
+          openaiApiKey: String(raw.openaiApiKey ?? '').trim(),
+          openaiModel: String(raw.openaiModel ?? defaults.openaiModel).trim() || DEFAULT_OPENAI_MODEL,
         };
       }
     }
@@ -99,9 +202,14 @@ export function saveConfig(partial) {
     ...partial,
     updatedAt: new Date().toISOString(),
   };
+  next.provider = normalizeProviderName(next.provider);
   next.location = String(next.location || DEFAULT_LOCATION).trim() || DEFAULT_LOCATION;
   next.model = String(next.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
   next.projectId = String(next.projectId || '').trim();
+  next.openaiBaseUrl = String(next.openaiBaseUrl || DEFAULT_OPENAI_BASE_URL).trim() || DEFAULT_OPENAI_BASE_URL;
+  next.openaiApiKey = String(next.openaiApiKey ?? '').trim();
+  next.openaiModel = String(next.openaiModel || DEFAULT_OPENAI_MODEL).trim() || DEFAULT_OPENAI_MODEL;
+
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2), { encoding: 'utf8', mode: 0o600 });
   return next;
@@ -175,7 +283,7 @@ export function parseAndValidateGoogleCredentials(rawJsonInput) {
     };
   }
 
-  throw new Error(`不支持的 Google 凭证类型 "${obj.type || 'unknown'}"，请提供 Service Account JSON 密钥文件`);
+  throw new Error(`不支持的 Google 凭证类型 "${obj.type || 'unknown'}"，请提供 Service Account 或 ADC JSON 密钥文件`);
 }
 
 export function loadSavedCredentials() {
@@ -216,27 +324,40 @@ export function getPublicStatus() {
   const cfg = loadConfig();
   const cred = loadSavedCredentials();
   const pluginEnabled = !isPluginDisabledInGlobalConfig();
+  const provider = normalizeProviderName(cfg.provider);
   const effectiveProjectId = cfg.projectId || cred?.projectId || '';
-  const hasCredentials =
-    cfg.provider === 'openai-compatible'
-      ? Boolean(cfg.openaiApiKey && cfg.openaiApiKey.trim())
-      : Boolean(cred && cred.valid && effectiveProjectId);
+
+  const hasOpenaiKey = Boolean(cfg.openaiApiKey && cfg.openaiApiKey.trim());
+  const openaiKeyOptional = isLocalOpenAIEndpoint(cfg.openaiBaseUrl);
+  const openaiReady =
+    Boolean(cfg.openaiBaseUrl && cfg.openaiBaseUrl.trim()) &&
+    Boolean(cfg.openaiModel && cfg.openaiModel.trim()) &&
+    (hasOpenaiKey || openaiKeyOptional);
+  const vertexReady = Boolean(cred && cred.valid && effectiveProjectId);
+
+  const hasCredentials = provider === 'openai-compatible' ? openaiReady : vertexReady;
+  const activeModel = provider === 'openai-compatible' ? cfg.openaiModel || DEFAULT_OPENAI_MODEL : cfg.model || DEFAULT_MODEL;
 
   return {
     ok: true,
     version: SERVICE_VERSION,
     pluginEnabled,
     enabled: Boolean(cfg.enabled) && pluginEnabled,
-    provider: cfg.provider || 'vertex-maas',
+    provider,
+    activeModel,
     location: cfg.location || DEFAULT_LOCATION,
     projectId: effectiveProjectId,
     model: cfg.model || DEFAULT_MODEL,
     hasCredentials,
+    vertexReady,
+    openaiReady,
     credentialType: cred?.credentialType || '',
     clientEmail: cred?.clientEmail || '',
-    openaiBaseUrl: cfg.openaiBaseUrl || '',
-    openaiModel: cfg.openaiModel || '',
-    hasOpenaiKey: Boolean(cfg.openaiApiKey && cfg.openaiApiKey.trim()),
+    openaiBaseUrl: cfg.openaiBaseUrl || DEFAULT_OPENAI_BASE_URL,
+    openaiModel: cfg.openaiModel || DEFAULT_OPENAI_MODEL,
+    hasOpenaiKey,
+    openaiKeyMasked: hasOpenaiKey ? maskApiKey(cfg.openaiApiKey) : '',
+    openaiKeyOptional,
     dataDir: DATA_DIR,
     credentialFile: CREDENTIAL_FILE,
   };
@@ -394,6 +515,7 @@ function sendHttpsRequestOnce(targetUrl, options = {}, proxyUrl = '') {
           resolve({
             ok: status >= 200 && status < 300,
             status,
+            headers: res.headers || {},
             text,
             json() {
               return JSON.parse(text);
@@ -408,7 +530,7 @@ function sendHttpsRequestOnce(targetUrl, options = {}, proxyUrl = '') {
       req.end();
     };
 
-    if (proxyUrl && u.hostname !== '127.0.0.1' && u.hostname !== 'localhost') {
+    if (proxyUrl && !isPrivateOrLocalHost(u.hostname)) {
       openConnectTunnel(proxyUrl, u.hostname, port, Math.min(8000, timeoutMs))
         .then((socket) => runWithSocket(socket))
         .catch(reject);
@@ -419,6 +541,10 @@ function sendHttpsRequestOnce(targetUrl, options = {}, proxyUrl = '') {
 }
 
 export async function smartRequest(targetUrl, options = {}) {
+  const u = new URL(targetUrl);
+  if (isPrivateOrLocalHost(u.hostname)) {
+    return await sendHttpsRequestOnce(targetUrl, options, '');
+  }
   const proxyUrl = resolveHttpProxyUrl();
   if (proxyUrl) {
     try {
@@ -547,10 +673,79 @@ export function buildVertexChatCompletionsUrl(projectId, location = DEFAULT_LOCA
   return `https://${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(loc)}/endpoints/openapi/chat/completions`;
 }
 
+function flattenMessageContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part.text === 'string') return part.text;
+        return '';
+      })
+      .join('');
+  }
+  return '';
+}
+
+/**
+ * 解析标准 OpenAI JSON 响应或反代网关强制返回的 SSE (data: {...}) 流式响应
+ */
+export function extractOpenAIMessageText(rawResponseText) {
+  const trimmed = String(rawResponseText || '').trim();
+  if (!trimmed) return { ok: false, content: '', errorMessage: '响应内容为空' };
+
+  try {
+    const body = JSON.parse(trimmed);
+    if (body?.error) {
+      const msg = typeof body.error === 'string' ? body.error : body.error?.message || JSON.stringify(body.error);
+      return { ok: false, content: '', errorMessage: msg };
+    }
+    const choice = body?.choices?.[0] || {};
+    const content =
+      flattenMessageContent(choice?.message?.content) ||
+      (typeof choice?.text === 'string' ? choice.text : '');
+    return { ok: true, content };
+  } catch {
+    // 兼容部分中转站忽略 stream: false 直接返回 SSE data: 分块的场景
+    if (/^data:\s*/m.test(trimmed)) {
+      let acc = '';
+      let parsedChunks = 0;
+      for (const line of trimmed.split(/\r?\n/)) {
+        const l = line.trim();
+        if (!l.startsWith('data:')) continue;
+        const payload = l.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(payload);
+          if (chunk?.error) {
+            const msg = typeof chunk.error === 'string' ? chunk.error : chunk.error?.message || '';
+            return { ok: false, content: '', errorMessage: msg || '流式网关返回错误' };
+          }
+          parsedChunks++;
+          const c0 = chunk?.choices?.[0] || {};
+          acc +=
+            flattenMessageContent(c0?.delta?.content) ||
+            flattenMessageContent(c0?.message?.content) ||
+            (typeof c0?.text === 'string' ? c0.text : '');
+        } catch {}
+      }
+      if (parsedChunks > 0) {
+        return { ok: true, content: acc };
+      }
+    }
+    return {
+      ok: false,
+      content: '',
+      errorMessage: `接口返回非预期格式: ${trimmed.slice(0, 160)}`,
+    };
+  }
+}
+
 export function sanitizeSuggestion(rawContent) {
   if (!rawContent || typeof rawContent !== 'string') return '';
   let text = rawContent
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^[\s\S]*?<\/think>/i, '')
     .replace(/```[\s\S]*?```/g, '')
     .trim();
 
@@ -608,7 +803,13 @@ const SYSTEM_PROMPT = `你是用户在 AI 编程助手（Antigravity）聊天输
 - 严禁包含任何引号、序号、换行、Markdown 格式或“建议输入：”等解释性前缀！`;
 
 export async function generateNextSuggestionFromMessages(contextSummaryText, overrideCfg = null) {
-  const cfg = overrideCfg ? { ...loadConfig(), ...overrideCfg } : loadConfig();
+  const savedCfg = loadConfig();
+  const merged = overrideCfg ? { ...savedCfg, ...overrideCfg } : savedCfg;
+  if (overrideCfg && typeof overrideCfg.openaiApiKey === 'string' && !overrideCfg.openaiApiKey.trim()) {
+    merged.openaiApiKey = savedCfg.openaiApiKey;
+  }
+
+  const provider = normalizeProviderName(merged.provider);
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: contextSummaryText },
@@ -616,36 +817,67 @@ export async function generateNextSuggestionFromMessages(contextSummaryText, ove
 
   const startMs = Date.now();
 
-  if (cfg.provider === 'openai-compatible') {
-    const apiKey = String(cfg.openaiApiKey || '').trim();
-    const baseUrl = String(cfg.openaiBaseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
-    const model = String(cfg.openaiModel || 'deepseek-chat').trim();
-    if (!apiKey) {
+  if (provider === 'openai-compatible') {
+    const rawBaseUrl = String(merged.openaiBaseUrl || DEFAULT_OPENAI_BASE_URL).trim();
+    const apiKey = String(merged.openaiApiKey || '').trim();
+    const model = String(merged.openaiModel || DEFAULT_OPENAI_MODEL).trim();
+
+    if (!model) {
+      throw new Error('请填写 OpenAI 兼容模型名称 (Model)');
+    }
+    if (!apiKey && !isLocalOpenAIEndpoint(rawBaseUrl)) {
       throw new Error('尚未填写 OpenAI 兼容 API Key');
     }
-    const endpoint = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
-    const resp = await smartRequest(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, messages, max_tokens: 256, temperature: 0.3 }),
-      timeoutMs: 16_000,
-    });
-    let body = null;
-    try {
-      body = resp.json();
-    } catch {
-      throw new Error(`接口返回非 JSON (HTTP ${resp.status}): ${resp.text.slice(0, 160)}`);
+
+    const endpoint = normalizeOpenAIChatEndpoint(rawBaseUrl);
+    const endpointHost = new URL(endpoint).hostname.toLowerCase();
+
+    const headers = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+      if (endpointHost.endsWith('.openai.azure.com') || endpointHost.endsWith('.cognitiveservices.azure.com')) {
+        headers['api-key'] = apiKey;
+      }
     }
+
+    const sendOpenAI = async (useCompletionTokensMode) => {
+      const payload = useCompletionTokensMode
+        ? { model, messages, max_completion_tokens: 512, stream: false }
+        : { model, messages, max_tokens: 256, temperature: 0.3, stream: false };
+      return await smartRequest(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        timeoutMs: 18_000,
+      });
+    };
+
+    let resp = await sendOpenAI(false);
+    if (
+      !resp.ok &&
+      resp.status === 400 &&
+      /max_completion_tokens|max_tokens|temperature/i.test(resp.text)
+    ) {
+      resp = await sendOpenAI(true);
+    }
+
+    const parsed = extractOpenAIMessageText(resp.text);
     if (!resp.ok) {
-      throw new Error(body?.error?.message || `请求失败 (HTTP ${resp.status}): ${resp.text.slice(0, 160)}`);
+      throw new Error(
+        `OpenAI 接口调用失败 (HTTP ${resp.status}): ${parsed.errorMessage || resp.text.slice(0, 180)}`
+      );
     }
-    const rawMsg = body?.choices?.[0]?.message?.content || '';
+    if (!parsed.ok) {
+      throw new Error(parsed.errorMessage || '解析 OpenAI 兼容响应失败');
+    }
+
     return {
-      suggestion: sanitizeSuggestion(rawMsg),
-      rawContent: rawMsg,
+      provider: 'openai-compatible',
+      suggestion: sanitizeSuggestion(parsed.content),
+      rawContent: parsed.content,
       latencyMs: Date.now() - startMs,
       endpoint,
       model,
@@ -653,20 +885,20 @@ export async function generateNextSuggestionFromMessages(contextSummaryText, ove
     };
   }
 
-  const cred = overrideCfg?.rawCredentialJson
-    ? parseAndValidateGoogleCredentials(overrideCfg.rawCredentialJson)
+  const cred = merged?.rawCredentialJson
+    ? parseAndValidateGoogleCredentials(merged.rawCredentialJson)
     : loadSavedCredentials();
   if (!cred || !cred.valid) {
-    throw new Error('尚未导入 Google Cloud Service Account JSON 凭证');
+    throw new Error('尚未导入 Google Cloud Service Account / ADC JSON 凭证');
   }
 
-  const projectId = String(cfg.projectId || cred.projectId || '').trim();
+  const projectId = String(merged.projectId || cred.projectId || '').trim();
   if (!projectId) {
     throw new Error('未识别到 GCP Project ID，请在凭证或设置中填写 Project ID');
   }
 
-  const location = String(cfg.location || DEFAULT_LOCATION).trim() || DEFAULT_LOCATION;
-  const model = String(cfg.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  const location = String(merged.location || DEFAULT_LOCATION).trim() || DEFAULT_LOCATION;
+  const model = String(merged.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
   const endpoint = buildVertexChatCompletionsUrl(projectId, location);
   const accessToken = await getGoogleAccessToken(cred);
 
@@ -720,9 +952,10 @@ export async function generateNextSuggestionFromMessages(contextSummaryText, ove
   }
 
   const msgObj = body?.choices?.[0]?.message || {};
-  const rawContent = typeof msgObj.content === 'string' ? msgObj.content : '';
+  const rawContent = flattenMessageContent(msgObj.content);
 
   return {
+    provider: 'vertex-maas',
     suggestion: sanitizeSuggestion(rawContent),
     rawContent,
     latencyMs: Date.now() - startMs,

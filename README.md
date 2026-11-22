@@ -16,7 +16,7 @@
 | **Cowart Sidebar** (`cowart-sidebar`) | `1.0.0` | 左侧任务栏独立 Cowart 入口，支持全屏无限画布、底部悬浮提问胶囊、提问自动切换「左画布 + 右窄聊天栏」分栏与工作区切换 | 主进程钩子 + 渲染层 + 本地服务 | `127.0.0.1:45791` | Windows UI | [README](.agents/plugins/cowart-sidebar/README.md) |
 | **Notion Sidebar** (`notion-sidebar`) | `1.0.0` | 左侧任务栏独立 Notion 笔记入口，基于 OAuth 2.1 PKCE 直连官方 Notion Hosted MCP，支持页面阅读、行内轻量编辑、`/` 插入区块与专属项目分栏提问 | 主进程钩子 + 渲染层 + 本地服务 | `127.0.0.1:45793` | Windows UI | [README](.agents/plugins/notion-sidebar/README.md) |
 | **WSL Terminal** (`wsl-terminal`) | `1.0.0` | 在右侧辅助面板打开原生交互式多标签 WSL Linux 终端，自动映射当前工作区路径（`/mnt/...`），支持真彩色、快捷键中断与后台会话保持 | 纯标准 Sidecar（不改 `app.asar`） | 动态端口 | WSL 2 | [README](.agents/plugins/wsl-terminal/README.md) |
-| **Tab Suggest** (`tab-suggest`) | `1.0.0` | 每轮任务结束后基于 Vertex AI `deepseek-ai/deepseek-v4.1-flash-maas` 自动在输入框内渲染下一条幽灵灰字建议，按 `Tab` 键一键填入 | 主进程钩子 + Stop Hook + 渲染层 + 本地服务 | `127.0.0.1:45794` | Windows + WSL 2 双模 | [README](.agents/plugins/tab-suggest/README.md) |
+| **Tab Suggest** (`tab-suggest`) | `1.2.0` | 每轮任务结束后支持通用 OpenAI 兼容接口或 Vertex AI 自动在输入框内渲染下一条幽灵灰字建议，按 `Tab` 键一键填入 | 主进程钩子 + Stop Hook + 渲染层 + Sidecar | `127.0.0.1:45794` | Windows + WSL 2 双模 | [README](.agents/plugins/tab-suggest/README.md) |
 
 ---
 

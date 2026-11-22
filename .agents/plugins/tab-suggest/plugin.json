@@ -1,13 +1,13 @@
 {
   "name": "tab-suggest",
   "displayName": "Tab Suggest (智能下一步补全)",
-  "version": "1.0.0",
-  "description": "每轮任务结束后基于 Vertex AI DeepSeek V4.1 Flash 自动预测下一句指令，在对话框内渲染代码补全式幽灵灰字，按 Tab 键一键填入。",
+  "version": "1.2.0",
+  "description": "每轮任务结束后基于 OpenAI 兼容接口或 Google Cloud Vertex AI 自动预测下一句指令，在对话框内渲染代码补全式幽灵灰字，按 Tab 键一键填入。",
   "logo": "assets/logo.svg",
   "author": "Antigravity DIY",
   "suggestedPrompts": [
-    "查看当前 Tab 智能下一步补全插件与 Vertex AI 连接状态",
-    "测试 Tab Suggest 插件的下一条建议生成能力",
-    "重新同步并热刷新 Tab Suggest 对话框补全插件"
+    "查看当前 Tab 智能下一步补全插件与模型通道连接状态",
+    "打开右上角 Tab 智能补全设置面板切换 OpenAI 或 Vertex 通道",
+    "测试 Tab Suggest 插件的下一条建议生成能力"
   ]
 }

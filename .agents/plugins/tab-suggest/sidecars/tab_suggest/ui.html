@@ -17,6 +17,9 @@
       --amber: #f59e0b;
       --rose: #ef4444;
       --input-bg: rgba(255, 255, 255, 0.045);
+      --seg-bg: rgba(255, 255, 255, 0.05);
+      --seg-active: #2563eb;
+      --seg-active-fg: #ffffff;
     }
     @media (prefers-color-scheme: light) {
       :root {
@@ -26,6 +29,9 @@
         --fg: #0f172a;
         --muted: #64748b;
         --input-bg: #f1f5f9;
+        --seg-bg: #f1f5f9;
+        --seg-active: #2563eb;
+        --seg-active-fg: #ffffff;
       }
     }
     * { box-sizing: border-box; }
@@ -42,6 +48,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
       margin-bottom: 14px;
     }
     .title-wrap {
@@ -60,6 +67,10 @@
       border-radius: 999px;
       background: rgba(16, 185, 129, 0.14);
       color: var(--emerald);
+      white-space: nowrap;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .badge[data-warn="true"] {
       background: rgba(245, 158, 11, 0.16);
@@ -79,6 +90,37 @@
       margin: 0 0 10px 0;
       letter-spacing: 0.02em;
     }
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 3px;
+      border-radius: 9px;
+      background: var(--seg-bg);
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    .seg-btn {
+      height: 28px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .seg-btn:hover {
+      color: var(--fg);
+    }
+    .seg-btn.active {
+      background: var(--seg-active);
+      color: var(--seg-active-fg);
+    }
+    .pane-hidden {
+      display: none;
+    }
     .row-between {
       display: flex;
       align-items: center;
@@ -93,6 +135,12 @@
       font-size: 11.5px;
       color: var(--muted);
       margin-bottom: 4px;
+    }
+    .hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.4;
     }
     .input, .textarea {
       width: 100%;
@@ -137,6 +185,10 @@
     }
     .btn:hover {
       background: rgba(128, 128, 128, 0.1);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
     .btn-primary {
       flex: 1;
@@ -204,31 +256,82 @@
   </div>
 
   <div class="card">
-    <div class="section-title">Vertex AI 模型与凭证配置</div>
+    <div class="section-title">模型接口通道</div>
 
-    <div class="field" style="margin-top:0;">
-      <div class="row-between" style="margin-bottom:4px;">
-        <label class="label" style="margin:0;">Google Cloud JSON 凭证 (SA / ADC)</label>
-        <button type="button" class="btn btn-sm" id="pickFileBtn">选择 .json 文件</button>
-      </div>
-      <input type="file" id="fileInput" accept=".json,application/json" style="display:none;" />
-      <textarea class="textarea" id="credJson" placeholder="点击「选择 .json 文件」或在此直接粘贴 JSON 凭证内容..."></textarea>
+    <div class="segmented" role="tablist">
+      <button type="button" class="seg-btn" id="tabOpenaiBtn" data-provider="openai-compatible">OpenAI 兼容</button>
+      <button type="button" class="seg-btn active" id="tabVertexBtn" data-provider="vertex-maas">Vertex AI</button>
     </div>
 
-    <div class="grid2">
-      <div>
-        <label class="label">区域 (Location)</label>
-        <input type="text" class="input" id="locationInput" value="global" />
+    <!-- OpenAI 兼容配置面板 -->
+    <div id="openaiPane" class="pane-hidden">
+      <div class="field" style="margin-top:0;">
+        <label class="label" for="openaiBaseUrlInput">接口地址 (Base URL)</label>
+        <input
+          type="text"
+          class="input"
+          id="openaiBaseUrlInput"
+          placeholder="https://api.openai.com/v1"
+          value="https://api.deepseek.com/v1"
+        />
+        <div class="hint">自动补全 /v1/chat/completions；末尾加 # 可跳过自动补 /v1</div>
       </div>
-      <div>
-        <label class="label">Project ID</label>
-        <input type="text" class="input" id="projectInput" placeholder="从凭证自动提取" />
+
+      <div class="field">
+        <div class="row-between" style="margin-bottom:4px;">
+          <label class="label" style="margin:0;" for="openaiKeyInput">API Key</label>
+          <div style="display:flex;gap:6px;">
+            <button type="button" class="btn btn-sm" id="toggleKeyVisBtn">显示</button>
+            <button type="button" class="btn btn-sm" id="clearOpenaiKeyBtn" style="display:none;">清除</button>
+          </div>
+        </div>
+        <input
+          type="password"
+          class="input"
+          id="openaiKeyInput"
+          autocomplete="off"
+          placeholder="sk-...（本地 Ollama / LM Studio 可留空）"
+        />
+      </div>
+
+      <div class="field">
+        <label class="label" for="openaiModelInput">模型名称 (Model)</label>
+        <input
+          type="text"
+          class="input"
+          id="openaiModelInput"
+          placeholder="deepseek-chat / gpt-4o-mini"
+          value="deepseek-chat"
+        />
       </div>
     </div>
 
-    <div class="field">
-      <label class="label">模型 ID (Vertex MaaS)</label>
-      <input type="text" class="input" id="modelInput" value="deepseek-ai/deepseek-v4.1-flash-maas" />
+    <!-- Vertex AI 配置面板 -->
+    <div id="vertexPane">
+      <div class="field" style="margin-top:0;">
+        <div class="row-between" style="margin-bottom:4px;">
+          <label class="label" style="margin:0;" for="credJson">Google Cloud JSON 凭证 (SA / ADC)</label>
+          <button type="button" class="btn btn-sm" id="pickFileBtn">选择 .json 文件</button>
+        </div>
+        <input type="file" id="fileInput" accept=".json,application/json" style="display:none;" />
+        <textarea class="textarea" id="credJson" placeholder="点击「选择 .json 文件」或在此直接粘贴 JSON 凭证内容..."></textarea>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <label class="label" for="locationInput">区域 (Location)</label>
+          <input type="text" class="input" id="locationInput" value="global" />
+        </div>
+        <div>
+          <label class="label" for="projectInput">Project ID</label>
+          <input type="text" class="input" id="projectInput" placeholder="从凭证自动提取" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="modelInput">模型 ID (Vertex MaaS)</label>
+        <input type="text" class="input" id="modelInput" value="deepseek-ai/deepseek-v4.1-flash-maas" />
+      </div>
     </div>
 
     <div class="btn-row">
@@ -249,21 +352,86 @@
     const API_BASE = 'http://127.0.0.1:45794';
     const credBadge = document.getElementById('credBadge');
     const enabledToggle = document.getElementById('enabledToggle');
+    const tabOpenaiBtn = document.getElementById('tabOpenaiBtn');
+    const tabVertexBtn = document.getElementById('tabVertexBtn');
+    const openaiPane = document.getElementById('openaiPane');
+    const vertexPane = document.getElementById('vertexPane');
+
+    const openaiBaseUrlInput = document.getElementById('openaiBaseUrlInput');
+    const openaiKeyInput = document.getElementById('openaiKeyInput');
+    const openaiModelInput = document.getElementById('openaiModelInput');
+    const toggleKeyVisBtn = document.getElementById('toggleKeyVisBtn');
+    const clearOpenaiKeyBtn = document.getElementById('clearOpenaiKeyBtn');
+
     const pickFileBtn = document.getElementById('pickFileBtn');
     const fileInput = document.getElementById('fileInput');
     const credJson = document.getElementById('credJson');
     const locationInput = document.getElementById('locationInput');
     const projectInput = document.getElementById('projectInput');
     const modelInput = document.getElementById('modelInput');
+
     const saveTestBtn = document.getElementById('saveTestBtn');
     const statusBox = document.getElementById('statusBox');
     const recentList = document.getElementById('recentList');
     const refreshBtn = document.getElementById('refreshBtn');
 
+    let selectedProvider = 'vertex-maas';
+    let userChangedTab = false;
     let isEditingFields = false;
-    [credJson, locationInput, projectInput, modelInput].forEach((el) => {
+
+    [
+      openaiBaseUrlInput,
+      openaiKeyInput,
+      openaiModelInput,
+      credJson,
+      locationInput,
+      projectInput,
+      modelInput,
+    ].forEach((el) => {
       el.addEventListener('focus', () => { isEditingFields = true; });
       el.addEventListener('blur', () => { isEditingFields = false; });
+    });
+
+    function applyProviderUI(provider) {
+      selectedProvider = provider === 'openai-compatible' ? 'openai-compatible' : 'vertex-maas';
+      const isOpenAI = selectedProvider === 'openai-compatible';
+      tabOpenaiBtn.classList.toggle('active', isOpenAI);
+      tabVertexBtn.classList.toggle('active', !isOpenAI);
+      openaiPane.classList.toggle('pane-hidden', !isOpenAI);
+      vertexPane.classList.toggle('pane-hidden', isOpenAI);
+    }
+
+    tabOpenaiBtn.addEventListener('click', () => {
+      userChangedTab = true;
+      applyProviderUI('openai-compatible');
+      showStatus('');
+    });
+
+    tabVertexBtn.addEventListener('click', () => {
+      userChangedTab = true;
+      applyProviderUI('vertex-maas');
+      showStatus('');
+    });
+
+    toggleKeyVisBtn.addEventListener('click', () => {
+      const nextType = openaiKeyInput.type === 'password' ? 'text' : 'password';
+      openaiKeyInput.type = nextType;
+      toggleKeyVisBtn.textContent = nextType === 'password' ? '显示' : '隐藏';
+    });
+
+    clearOpenaiKeyBtn.addEventListener('click', async () => {
+      try {
+        await fetch(`${API_BASE}/api/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clearOpenaiKey: true }),
+        });
+        openaiKeyInput.value = '';
+        showStatus('已清除保存的 OpenAI API Key');
+        await loadStatus();
+      } catch (err) {
+        showStatus(`清除失败: ${err.message}`, true);
+      }
     });
 
     function showStatus(text, isErr = false) {
@@ -278,20 +446,46 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const st = await resp.json();
         enabledToggle.checked = Boolean(st.enabled);
+
+        if (!userChangedTab) {
+          applyProviderUI(st.provider || 'vertex-maas');
+        }
+
         if (!isEditingFields) {
           locationInput.value = st.location || 'global';
           projectInput.value = st.projectId || '';
           modelInput.value = st.model || 'deepseek-ai/deepseek-v4.1-flash-maas';
+          openaiBaseUrlInput.value = st.openaiBaseUrl || 'https://api.deepseek.com/v1';
+          openaiModelInput.value = st.openaiModel || 'deepseek-chat';
         }
-        if (st.hasCredentials) {
-          credBadge.textContent = `已就绪 · ${st.projectId}`;
-          credBadge.removeAttribute('data-warn');
-          if (!credJson.value.trim()) {
-            credJson.placeholder = `已安全绑定凭证 (${st.clientEmail || st.credentialType || 'JSON'})。如需更换可重新选择或粘贴...`;
+
+        clearOpenaiKeyBtn.style.display = st.hasOpenaiKey ? 'inline-block' : 'none';
+        if (!openaiKeyInput.value.trim()) {
+          openaiKeyInput.placeholder = st.hasOpenaiKey
+            ? `已安全保存 (${st.openaiKeyMasked || '••••'})，留空保持不变`
+            : 'sk-...（本地 Ollama / LM Studio 可留空）';
+        }
+
+        if (st.vertexReady && !credJson.value.trim()) {
+          credJson.placeholder = `已安全绑定凭证 (${st.clientEmail || st.credentialType || 'JSON'})。如需更换可重新选择或粘贴...`;
+        }
+
+        if (st.provider === 'openai-compatible') {
+          if (st.hasCredentials) {
+            credBadge.textContent = `已就绪 · ${st.openaiModel || 'OpenAI'}`;
+            credBadge.removeAttribute('data-warn');
+          } else {
+            credBadge.textContent = '待填 API Key';
+            credBadge.setAttribute('data-warn', 'true');
           }
         } else {
-          credBadge.textContent = '待导入凭证';
-          credBadge.setAttribute('data-warn', 'true');
+          if (st.hasCredentials) {
+            credBadge.textContent = `已就绪 · ${st.projectId}`;
+            credBadge.removeAttribute('data-warn');
+          } else {
+            credBadge.textContent = '待导入凭证';
+            credBadge.setAttribute('data-warn', 'true');
+          }
         }
       } catch {
         credBadge.textContent = '本地服务连接中';
@@ -367,18 +561,29 @@
 
     saveTestBtn.addEventListener('click', async () => {
       saveTestBtn.disabled = true;
-      showStatus('正在保存配置并测试 Vertex AI 连接...');
+      const isOpenAI = selectedProvider === 'openai-compatible';
+      showStatus(isOpenAI ? '正在保存配置并测试 OpenAI 兼容接口...' : '正在保存配置并测试 Vertex AI 连接...');
       try {
         const payload = {
           enabled: Boolean(enabledToggle.checked),
-          provider: 'vertex-maas',
-          location: locationInput.value.trim() || 'global',
-          projectId: projectInput.value.trim(),
-          model: modelInput.value.trim() || 'deepseek-ai/deepseek-v4.1-flash-maas',
+          provider: selectedProvider,
         };
-        if (credJson.value.trim().startsWith('{')) {
-          payload.credentialJson = credJson.value.trim();
+
+        if (isOpenAI) {
+          payload.openaiBaseUrl = openaiBaseUrlInput.value.trim() || 'https://api.deepseek.com/v1';
+          payload.openaiModel = openaiModelInput.value.trim() || 'deepseek-chat';
+          if (openaiKeyInput.value.trim()) {
+            payload.openaiApiKey = openaiKeyInput.value.trim();
+          }
+        } else {
+          payload.location = locationInput.value.trim() || 'global';
+          payload.projectId = projectInput.value.trim();
+          payload.model = modelInput.value.trim() || 'deepseek-ai/deepseek-v4.1-flash-maas';
+          if (credJson.value.trim().startsWith('{')) {
+            payload.credentialJson = credJson.value.trim();
+          }
         }
+
         const cfgResp = await fetch(`${API_BASE}/api/config`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -386,7 +591,10 @@
         });
         const cfgData = await cfgResp.json();
         if (!cfgResp.ok) throw new Error(cfgData.error || '保存失败');
+
+        userChangedTab = false;
         credJson.value = '';
+        openaiKeyInput.value = '';
         await loadStatus();
 
         const testResp = await fetch(`${API_BASE}/api/test`, {
