@@ -31,7 +31,7 @@
   document.getElementById('agy-quota-pill-styles')?.remove();
 
   window.__AGY_QUOTA_PILL_INSTALLED__ = true;
-  window.__AGY_QUOTA_PILL_VERSION__ = '1.2.0';
+  window.__AGY_QUOTA_PILL_VERSION__ = '1.4.0';
 
   const RING_CENTER = 15;
   const RING_RADIUS = 12.3;
@@ -907,10 +907,14 @@
   }
 
   async function fetchQuotaStatus(force = false) {
+    let ipcResult = null;
     try {
       if (window.__agyQuotaPillIPC && typeof window.__agyQuotaPillIPC.getQuota === 'function') {
         const res = await window.__agyQuotaPillIPC.getQuota(Boolean(force));
-        if (res && typeof res === 'object') return res;
+        if (res && typeof res === 'object') {
+          if (res.ok) return res;
+          ipcResult = res;
+        }
       }
     } catch {}
 
@@ -921,10 +925,12 @@
         cache: 'no-store',
       });
       if (resp.ok) {
-        return await resp.json();
+        const data = await resp.json();
+        if (data && data.ok) return data;
+        if (!ipcResult) ipcResult = data;
       }
     } catch {}
-    return null;
+    return ipcResult;
   }
 
   async function refreshQuota(force = false) {

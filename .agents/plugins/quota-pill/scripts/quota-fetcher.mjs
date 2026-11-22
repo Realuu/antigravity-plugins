@@ -182,11 +182,11 @@ export function scanRecentLocalTokens(force = false) {
 }
 
 /**
- * 从 language_server.log 解析候选 HTTP / HTTPS 端口列表（最新 HTTP 优先）
+ * 从 language_server.log 解析候选 HTTPS / HTTP 端口列表（最新排最前）
  */
 function readCandidateEndpointsFromLog() {
-  const httpList = [];
   const httpsList = [];
+  const httpList = [];
   for (const logPath of getCandidateLogPaths()) {
     try {
       if (!fs.existsSync(logPath)) continue;
@@ -195,7 +195,7 @@ function readCandidateEndpointsFromLog() {
       let match;
       while ((match = regex.exec(text)) !== null) {
         const port = Number(match[1]);
-        const proto = String(match[2] || 'HTTP').toLowerCase();
+        const proto = String(match[2] || 'HTTPS').toLowerCase();
         if (port > 0) {
           if (proto === 'https') {
             httpsList.push({ proto: 'https', host: '127.0.0.1', port });
@@ -207,7 +207,7 @@ function readCandidateEndpointsFromLog() {
     } catch {}
   }
 
-  const combined = [...httpList.reverse(), ...httpsList.reverse()];
+  const combined = [...httpsList.reverse(), ...httpList.reverse()];
   const seen = new Set();
   const deduped = [];
   for (const ep of combined) {
@@ -220,19 +220,37 @@ function readCandidateEndpointsFromLog() {
   return deduped;
 }
 
-function parseCmdLineInfo(pid, cmd) {
+function parseCmdLineInfo(pid, cmd, envToken = '') {
   const text = String(cmd || '');
   const tokenMatch = text.match(/--csrf_token(?:=|\s+)([^\s"'\0]+)/);
-  if (!tokenMatch || !tokenMatch[1]) return null;
+  const token = (tokenMatch && tokenMatch[1]) || String(envToken || '').trim();
+  if (!token) return null;
   const httpsMatch = text.match(/--https_server_port(?:=|\s+)(\d+)/);
   const httpMatch = text.match(/--(?:extension_server_port|server_port|http_port)(?:=|\s+)(\d+)/);
   return {
     pid: Number(pid) || 0,
-    token: tokenMatch[1],
+    token,
     httpsPort: httpsMatch ? Number(httpsMatch[1]) : 0,
     httpPort: httpMatch ? Number(httpMatch[1]) : 0,
     listenPorts: [],
   };
+}
+
+/**
+ * 在 Linux / WSL 下读取同用户进程 /proc/<pid>/environ 中的 ANTIGRAVITY_SERVER_CSRF_TOKEN（兼容 v2.34+）
+ */
+function readLinuxPidCsrfFromEnviron(pid) {
+  if (!pid || !IS_LINUX) return '';
+  try {
+    const raw = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+    const entries = raw.split('\0');
+    for (const item of entries) {
+      if (item.startsWith('ANTIGRAVITY_SERVER_CSRF_TOKEN=')) {
+        return item.slice('ANTIGRAVITY_SERVER_CSRF_TOKEN='.length).trim();
+      }
+    }
+  } catch {}
+  return '';
 }
 
 /**
@@ -279,7 +297,7 @@ function readLinuxPidListeningPorts(pid) {
 }
 
 /**
- * 在 Linux / WSL 下扫描运行中的 language_server 进程（优先纯 /proc 扫描，回退 ps）
+ * 在 Linux / WSL 下扫描运行中的 language_server 进程（支持 v2.34+ /proc/environ 与旧版 cmdline）
  */
 function readLinuxLanguageServerProcesses() {
   const results = [];
@@ -289,10 +307,10 @@ function readLinuxLanguageServerProcesses() {
         if (!/^\d+$/.test(entry)) continue;
         try {
           const raw = fs.readFileSync(`/proc/${entry}/cmdline`, 'utf8');
-          if (!raw.includes('language_server') || !raw.includes('--csrf_token')) continue;
-          // 跳过外层 sh -c 包装进程，避免重复，或一并去重处理
+          if (!raw.includes('language_server')) continue;
           const cmd = raw.replace(/\0+/g, ' ').trim();
-          const info = parseCmdLineInfo(entry, cmd);
+          const envToken = cmd.includes('--csrf_token') ? '' : readLinuxPidCsrfFromEnviron(entry);
+          const info = parseCmdLineInfo(entry, cmd, envToken);
           if (info) {
             info.listenPorts = readLinuxPidListeningPorts(info.pid);
             results.push(info);
@@ -309,10 +327,11 @@ function readLinuxLanguageServerProcesses() {
         timeout: 4000,
       });
       for (const line of out.split(/\r?\n/)) {
-        if (!line.includes('language_server') || !line.includes('--csrf_token')) continue;
+        if (!line.includes('language_server')) continue;
         const m = /^\s*(\d+)\s+(.*)$/.exec(line);
         if (!m) continue;
-        const info = parseCmdLineInfo(m[1], m[2]);
+        const envToken = m[2].includes('--csrf_token') ? '' : readLinuxPidCsrfFromEnviron(m[1]);
+        const info = parseCmdLineInfo(m[1], m[2], envToken);
         if (info) {
           info.listenPorts = readLinuxPidListeningPorts(info.pid);
           results.push(info);
@@ -321,13 +340,12 @@ function readLinuxLanguageServerProcesses() {
     } catch {}
   }
 
-  // 让真正持有监听 socket 的进程排在最前
   results.sort((a, b) => b.listenPorts.length - a.listenPorts.length);
   return results;
 }
 
 /**
- * 在 Windows 下查询运行中的 language_server.exe 或 WSL 模式下的 wsl.exe 宿主进程
+ * 在 Windows 下查询运行中的 language_server.exe 或 WSL 模式下的 wsl.exe 宿主进程（兼容旧版 argv）
  */
 function readWindowsLanguageServerProcesses() {
   const results = [];
@@ -383,7 +401,7 @@ function readRunningLanguageServerProcesses() {
 }
 
 /**
- * 支持 HTTP 与本地自签 HTTPS (127.0.0.1) 的 Connect RPC 请求
+ * 支持 HTTPS（本地 127.0.0.1 自签证书，禁用 keep-alive 复用）与 HTTP 的 Connect RPC 请求
  */
 function requestLsRpc(endpoint, token, methodPath, bodyObj, timeoutMs) {
   return new Promise((resolve) => {
@@ -403,12 +421,13 @@ function requestLsRpc(endpoint, token, methodPath, bodyObj, timeoutMs) {
         port,
         path: methodPath,
         method: 'POST',
-        rejectUnauthorized: false,
+        agent: false,
+        ...(proto === 'https' ? { rejectUnauthorized: false } : {}),
         headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-          'X-Codeium-Csrf-Token': token,
-          'Connect-Protocol-Version': '1',
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(payload)),
+          'x-codeium-csrf-token': token,
+          'connect-protocol-version': '1',
         },
         timeout: timeoutMs,
       },
@@ -487,7 +506,7 @@ function parseEnvAddress(rawAddr) {
   const parts = s.split(':');
   const port = Number(parts[parts.length - 1]);
   const host = parts.slice(0, -1).join(':') || '127.0.0.1';
-  return port > 0 ? { proto: 'http', host, port } : null;
+  return port > 0 ? { proto: 'https', host, port } : null;
 }
 
 /**
@@ -501,19 +520,19 @@ export async function discoverLanguageServer(force = false) {
   if (process.env.ANTIGRAVITY_LS_ADDRESS && process.env.ANTIGRAVITY_CSRF_TOKEN) {
     const ep = parseEnvAddress(process.env.ANTIGRAVITY_LS_ADDRESS);
     if (ep) {
-      const altEp = { ...ep, proto: ep.proto === 'http' ? 'https' : 'http' };
-      const data =
-        (await probeGetUserStatus(ep, process.env.ANTIGRAVITY_CSRF_TOKEN)) ||
-        (await probeGetUserStatus(altEp, process.env.ANTIGRAVITY_CSRF_TOKEN));
-      if (data) {
-        cachedConnection = {
-          endpoint: ep,
-          token: process.env.ANTIGRAVITY_CSRF_TOKEN,
-          pid: 0,
-        };
-        cachedRawStatus = data;
-        cachedRawStatusAt = Date.now();
-        return cachedConnection;
+      const altEp = { ...ep, proto: ep.proto === 'https' ? 'http' : 'https' };
+      for (const candidate of [ep, altEp]) {
+        const data = await probeGetUserStatus(candidate, process.env.ANTIGRAVITY_CSRF_TOKEN);
+        if (data) {
+          cachedConnection = {
+            endpoint: candidate,
+            token: process.env.ANTIGRAVITY_CSRF_TOKEN,
+            pid: 0,
+          };
+          cachedRawStatus = data;
+          cachedRawStatusAt = Date.now();
+          return cachedConnection;
+        }
       }
     }
   }
@@ -522,17 +541,16 @@ export async function discoverLanguageServer(force = false) {
   const procs = readRunningLanguageServerProcesses();
 
   const candidateEndpoints = [];
-  // Linux 下 /proc/<pid>/fd 精确拿到的监听端口最可靠，优先放入（同时测 HTTP 与 HTTPS）
   for (const p of procs) {
     for (const lp of p.listenPorts || []) {
-      candidateEndpoints.push({ proto: 'http', host: '127.0.0.1', port: lp });
       candidateEndpoints.push({ proto: 'https', host: '127.0.0.1', port: lp });
-    }
-    if (p.httpPort > 0) {
-      candidateEndpoints.push({ proto: 'http', host: '127.0.0.1', port: p.httpPort });
+      candidateEndpoints.push({ proto: 'http', host: '127.0.0.1', port: lp });
     }
     if (p.httpsPort > 0) {
       candidateEndpoints.push({ proto: 'https', host: '127.0.0.1', port: p.httpsPort });
+    }
+    if (p.httpPort > 0) {
+      candidateEndpoints.push({ proto: 'http', host: '127.0.0.1', port: p.httpPort });
     }
   }
   candidateEndpoints.push(...logEndpoints);
@@ -549,6 +567,13 @@ export async function discoverLanguageServer(force = false) {
 
   for (const proc of procs) {
     for (const ep of uniqueEndpoints) {
+      const summary = await probeRetrieveUserQuotaSummary(ep, proc.token, false);
+      if (summary) {
+        cachedConnection = { endpoint: ep, token: proc.token, pid: proc.pid };
+        cachedQuotaSummary = summary;
+        cachedQuotaSummaryAt = Date.now();
+        return cachedConnection;
+      }
       const data = await probeGetUserStatus(ep, proc.token);
       if (data) {
         cachedConnection = { endpoint: ep, token: proc.token, pid: proc.pid };
@@ -620,6 +645,9 @@ export async function fetchRawQuotaSummary(forceRefresh = false) {
 
   const conn = await discoverLanguageServer(true);
   if (!conn) return null;
+  if (!forceRefresh && cachedQuotaSummary && Date.now() - cachedQuotaSummaryAt < 3000) {
+    return cachedQuotaSummary;
+  }
   const data = await probeRetrieveUserQuotaSummary(conn.endpoint, conn.token, forceRefresh);
   if (data) {
     cachedQuotaSummary = data;
@@ -629,7 +657,7 @@ export async function fetchRawQuotaSummary(forceRefresh = false) {
 }
 
 /**
- * 当在 WSL 沙盒或无进程权限环境直接连不上 language_server 时，尝试向 Windows 主进程 45790 桥接请求
+ * 优先或回退请求 Electron 主进程内置的 127.0.0.1:45790/api/quota 桥接（v2.34+ 推荐通道）
  */
 async function tryFetchFromHostBridge(forceRefresh = false) {
   if (String(process.env.AGY_QUOTA_DISABLE_BRIDGE_FALLBACK || '') === '1') {
@@ -637,7 +665,7 @@ async function tryFetchFromHostBridge(forceRefresh = false) {
   }
   try {
     const url = `http://127.0.0.1:${BRIDGE_PORT}/api/quota${forceRefresh ? '?refresh=1' : ''}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    const resp = await fetch(url, { signal: AbortSignal.timeout(2500) });
     if (!resp.ok) return null;
     const data = await resp.json();
     if (data && data.ok) {
@@ -703,7 +731,7 @@ function classifyModelFamily(label, modelId) {
   if (text.includes('flash')) {
     return { key: 'gemini-flash', title: 'Gemini Flash 额度', order: 2 };
   }
-  if (text.includes('gemini') || text.includes('pro') || text.includes('orchestrator') || text.includes('carbon') || text.includes('argon') || text.includes('hydrogen')) {
+  if (text.includes('gemini') || text.includes('pro') || text.includes('orchestrator') || text.includes('carbon') || text.includes('argon') || text.includes('hydrogen') || text.includes('neon')) {
     return { key: 'gemini-pro', title: 'Gemini 额度', order: 1 };
   }
   return { key: `other:${label || modelId}`, title: label || '模型额度', order: 5 };
@@ -715,7 +743,7 @@ function classifySummaryGroup(displayName, description) {
     return {
       id: 'gemini',
       title: 'Gemini',
-      keywords: ['gemini', 'orchestrator', 'carbon', 'argon', 'hydrogen', 'flash'],
+      keywords: ['gemini', 'orchestrator', 'carbon', 'argon', 'hydrogen', 'neon', 'flash'],
       order: 1,
     };
   }
@@ -1105,9 +1133,14 @@ export function normalizeQuotaStatus(rawResp, localStats) {
 }
 
 /**
- * 获取完整标准化配额状态（优先 RetrieveUserQuotaSummary，回退 GetUserStatus / 45790 桥接 / 本地统计）
+ * 获取完整标准化配额状态（v2.34+ 优先尝试 Electron 主进程 45790 桥接，随后直连 LS 或本地统计兜底）
  */
 export async function getQuotaStatus(forceRefresh = false) {
+  const bridgeData = await tryFetchFromHostBridge(forceRefresh);
+  if (bridgeData) {
+    return bridgeData;
+  }
+
   const localStats = scanRecentLocalTokens(forceRefresh);
 
   const summaryRaw = await fetchRawQuotaSummary(forceRefresh);
@@ -1119,11 +1152,6 @@ export async function getQuotaStatus(forceRefresh = false) {
   const raw = await fetchRawUserStatus(forceRefresh);
   if (raw) {
     return normalizeQuotaStatus(raw, localStats);
-  }
-
-  const bridgeData = await tryFetchFromHostBridge(forceRefresh);
-  if (bridgeData) {
-    return bridgeData;
   }
 
   return normalizeQuotaStatus(null, localStats);

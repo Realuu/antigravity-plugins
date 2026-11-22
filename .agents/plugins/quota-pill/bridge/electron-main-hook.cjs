@@ -1,12 +1,16 @@
 "use strict";
 /**
- * Antigravity Quota Pill — Electron 主进程桥接钩子 (CommonJS, Windows + WSL 双模兼容)
+ * Antigravity Quota Pill — Electron 主进程桥接钩子 (CommonJS, 兼容 v2.34+ 内存令牌与 Windows/WSL 双模)
  *
  * 作用：
- * 1. 注册 Electron IPC 通道 `quota-pill:get-status`，支持从本地 Windows 模式或 WSL 模式运行的
- *    `language_server`（优先主进程内存直连，回退进程表/WSL 扫描 + HTTP/HTTPS 双协议）获取真实配额，
- *    失败时以近 5 小时 / 7 天本地与 WSL `transcript.jsonl` Token 统计作为兜底；
- * 2. 在 127.0.0.1:45790 挂载轻量本地接口 `/api/quota`；
+ * 1. 注册 Electron IPC 通道 `quota-pill:get-status`，从本地 Windows 模式或 WSL 模式运行的
+ *    `language_server` 获取真实配额：
+ *    - 优先直接读取主进程内 `dist/languageServer.js` / `dist/authBootstrap.js` 导出的
+ *      `getLsCsrfToken()` / `getActiveLsCsrfToken()` 与 `getLsPort()`，按官方规范经
+ *      `https://127.0.0.1:<port>` + `x-codeium-csrf-token` 请求 Connect RPC；
+ *    - 兼容旧版客户端的 `spawnargs` / 进程表 / WSL `ps` 兜底扫描；
+ *    - 服务不可用时以近 5 小时 / 7 天本地与 WSL `transcript.jsonl` Token 统计兜底；
+ * 2. 在 127.0.0.1:45790 挂载轻量本地接口 `/api/quota` 与 `/health`（若被旧独立 sidecar 进程占用则通知其退让）；
  * 3. 监听所有主渲染窗口的 `dom-ready` / `did-finish-load` 事件，自动注入 `sidebar-quota.js`。
  */
 const fs = require("fs");
@@ -17,6 +21,7 @@ const https = require("https");
 const { execFile } = require("child_process");
 
 const FIXED_PORT = 45790;
+const HOOK_VERSION = "1.4.0";
 const USER_DATA_DIR = path.join(os.homedir(), "AppData", "Roaming", "Antigravity");
 const LS_LOG_PATH = path.join(USER_DATA_DIR, "logs", "language_server.log");
 const WSL_STATE_PATH = path.join(USER_DATA_DIR, "wsl_state.json");
@@ -35,10 +40,11 @@ let inflightPromise = null;
 const cachedDistroHomes = new Map();
 
 /**
- * 从 Electron 主进程 require.cache 中零开销提取原生 languageServer / wsl 模块状态
+ * 从 Electron 主进程 require.cache 中零开销提取原生 languageServer / authBootstrap / wsl 模块状态
  */
 function readInProcessLanguageServerInfo() {
   let lsMod = null;
+  let authMod = null;
   let wslMod = null;
   try {
     const cache = require.cache || {};
@@ -46,15 +52,18 @@ function readInProcessLanguageServerInfo() {
       const norm = key.replace(/\\/g, "/");
       if (!lsMod && norm.endsWith("/dist/languageServer.js")) {
         lsMod = cache[key] && cache[key].exports;
+      } else if (!authMod && norm.endsWith("/dist/authBootstrap.js")) {
+        authMod = cache[key] && cache[key].exports;
       } else if (!wslMod && norm.endsWith("/dist/wsl.js")) {
         wslMod = cache[key] && cache[key].exports;
       }
-      if (lsMod && wslMod) break;
+      if (lsMod && authMod && wslMod) break;
     }
   } catch {}
 
   let port = 0;
   let token = "";
+  let baseUrl = "";
   let pid = 0;
   let activeDistro = "";
 
@@ -75,15 +84,42 @@ function readInProcessLanguageServerInfo() {
     } catch {}
   }
 
+  // 1. 优先使用 Antigravity v2.34+ 导出的内存认证接口（本地与 WSL 双模通用）
   try {
     if (lsMod) {
       if (typeof lsMod.getLsPort === "function") {
         port = Number(lsMod.getLsPort()) || 0;
       }
-      if (typeof lsMod.getLsProcess === "function") {
-        const proc = lsMod.getLsProcess();
-        if (proc) {
-          pid = Number(proc.pid) || 0;
+      if (typeof lsMod.getLsCsrfToken === "function") {
+        token = String(lsMod.getLsCsrfToken() || "").trim();
+      }
+      if (typeof lsMod.getLsBaseUrl === "function") {
+        baseUrl = String(lsMod.getLsBaseUrl() || "").trim();
+      }
+    }
+  } catch {}
+
+  try {
+    if (authMod) {
+      if (!port && typeof authMod.getActiveLsPort === "function") {
+        port = Number(authMod.getActiveLsPort()) || 0;
+      }
+      if (!token && typeof authMod.getActiveLsCsrfToken === "function") {
+        token = String(authMod.getActiveLsCsrfToken() || "").trim();
+      }
+      if (!baseUrl && typeof authMod.getActiveLsBaseUrl === "function") {
+        baseUrl = String(authMod.getActiveLsBaseUrl() || "").trim();
+      }
+    }
+  } catch {}
+
+  // 2. 兼容旧版 Antigravity：从子进程 spawnargs 读取 --csrf_token
+  try {
+    if (lsMod && typeof lsMod.getLsProcess === "function") {
+      const proc = lsMod.getLsProcess();
+      if (proc) {
+        pid = Number(proc.pid) || 0;
+        if (!token) {
           const args = Array.isArray(proc.spawnargs) ? proc.spawnargs : [];
           for (let i = 0; i < args.length; i++) {
             const arg = String(args[i] || "");
@@ -101,7 +137,7 @@ function readInProcessLanguageServerInfo() {
     }
   } catch {}
 
-  return { port, token, pid, activeDistro };
+  return { port, token, baseUrl, pid, activeDistro };
 }
 
 /**
@@ -265,30 +301,43 @@ function scanRecentLocalTokens(force) {
 }
 
 /**
- * 从 language_server.log 解析候选 HTTP / HTTPS 端口列表（HTTP 优先，最新排最前）
+ * 从 language_server.log 解析候选 HTTP / HTTPS 端口列表（最新排最前）
  */
 function readCandidateEndpointsFromLog() {
-  const httpEndpoints = [];
   const httpsEndpoints = [];
-  if (!fs.existsSync(LS_LOG_PATH)) return [];
+  const httpEndpoints = [];
+  const logPaths = [LS_LOG_PATH];
   try {
-    const text = fs.readFileSync(LS_LOG_PATH, "utf8");
-    const regex = /listening on \w+ port at (\d+) for (HTTPS?)\b/gi;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      const port = Number(match[1]);
-      const proto = String(match[2] || "HTTP").toLowerCase();
-      if (port > 0) {
-        if (proto === "https") {
-          httpsEndpoints.push({ port, proto: "https" });
-        } else {
-          httpEndpoints.push({ port, proto: "http" });
-        }
+    const electron = require("electron");
+    if (electron && electron.app && typeof electron.app.getPath === "function") {
+      const appLogPath = path.join(electron.app.getPath("logs"), "language_server.log");
+      if (appLogPath && !logPaths.includes(appLogPath)) {
+        logPaths.unshift(appLogPath);
       }
     }
   } catch {}
 
-  const combined = [...httpEndpoints.reverse(), ...httpsEndpoints.reverse()];
+  for (const logFile of logPaths) {
+    if (!fs.existsSync(logFile)) continue;
+    try {
+      const text = fs.readFileSync(logFile, "utf8");
+      const regex = /listening on \w+ port at (\d+) for (HTTPS?)\b/gi;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const port = Number(match[1]);
+        const proto = String(match[2] || "HTTPS").toLowerCase();
+        if (port > 0) {
+          if (proto === "https") {
+            httpsEndpoints.push({ port, proto: "https", host: "127.0.0.1" });
+          } else {
+            httpEndpoints.push({ port, proto: "http", host: "127.0.0.1" });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const combined = [...httpsEndpoints.reverse(), ...httpEndpoints.reverse()];
   const seen = new Set();
   const deduped = [];
   for (const ep of combined) {
@@ -376,7 +425,7 @@ function readRunningLanguageServerProcesses(activeDistro) {
 }
 
 /**
- * 支持 HTTP 与本地自签 HTTPS (127.0.0.1) 的 Connect RPC 调用
+ * 支持 HTTPS（本地 127.0.0.1 自签证书，无 Origin 头，禁用 keep-alive 复用）与 HTTP 的 Connect RPC 调用
  */
 function requestLsRpc(endpoint, token, methodPath, bodyObj, timeoutMs) {
   return new Promise((resolve) => {
@@ -396,12 +445,13 @@ function requestLsRpc(endpoint, token, methodPath, bodyObj, timeoutMs) {
         port,
         path: methodPath,
         method: "POST",
-        rejectUnauthorized: false,
+        agent: false,
+        ...(proto === "https" ? { rejectUnauthorized: false } : {}),
         headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(payload),
-          "X-Codeium-Csrf-Token": token,
-          "Connect-Protocol-Version": "1",
+          "content-type": "application/json",
+          "content-length": String(Buffer.byteLength(payload)),
+          "x-codeium-csrf-token": token,
+          "connect-protocol-version": "1",
         },
         timeout: timeoutMs,
       },
@@ -480,57 +530,102 @@ function parseEnvAddress(rawAddr) {
   const parts = s.split(":");
   const port = Number(parts[parts.length - 1]);
   const host = parts.slice(0, -1).join(":") || "127.0.0.1";
-  return port > 0 ? { proto: "http", host, port } : null;
+  return port > 0 ? { proto: "https", host, port } : null;
+}
+
+/**
+ * 检查主进程内活动端口/令牌是否已更新（应对 LS 重启或冷启动完成）
+ */
+function invalidateStaleCachedConnection() {
+  if (!cachedConnection) return;
+  const inProc = readInProcessLanguageServerInfo();
+  if (inProc.token && cachedConnection.token !== inProc.token) {
+    cachedConnection = null;
+    cachedQuotaSummary = null;
+    cachedQuotaSummaryAt = 0;
+    cachedRawStatus = null;
+    cachedRawStatusAt = 0;
+    return;
+  }
+  if (inProc.port > 0 && cachedConnection.lsPort && cachedConnection.lsPort !== inProc.port) {
+    cachedConnection = null;
+    cachedQuotaSummary = null;
+    cachedQuotaSummaryAt = 0;
+    cachedRawStatus = null;
+    cachedRawStatusAt = 0;
+  }
 }
 
 async function discoverLanguageServer(force) {
+  invalidateStaleCachedConnection();
   if (!force && cachedConnection) return cachedConnection;
 
   // 0. 环境变量直连覆盖
   if (process.env.ANTIGRAVITY_LS_ADDRESS && process.env.ANTIGRAVITY_CSRF_TOKEN) {
     const ep = parseEnvAddress(process.env.ANTIGRAVITY_LS_ADDRESS);
     if (ep) {
-      const data =
-        (await probeGetUserStatus(ep, process.env.ANTIGRAVITY_CSRF_TOKEN)) ||
-        (await probeGetUserStatus({ ...ep, proto: ep.proto === "http" ? "https" : "http" }, process.env.ANTIGRAVITY_CSRF_TOKEN));
-      if (data) {
-        cachedConnection = {
-          endpoint: ep,
-          token: process.env.ANTIGRAVITY_CSRF_TOKEN,
-          pid: 0,
-        };
-        cachedRawStatus = data;
-        cachedRawStatusAt = Date.now();
-        return cachedConnection;
+      const altEp = { ...ep, proto: ep.proto === "https" ? "http" : "https" };
+      for (const candidate of [ep, altEp]) {
+        const data = await probeGetUserStatus(candidate, process.env.ANTIGRAVITY_CSRF_TOKEN);
+        if (data) {
+          cachedConnection = {
+            endpoint: candidate,
+            token: process.env.ANTIGRAVITY_CSRF_TOKEN,
+            pid: 0,
+            lsPort: candidate.port,
+          };
+          cachedRawStatus = data;
+          cachedRawStatusAt = Date.now();
+          return cachedConnection;
+        }
       }
     }
   }
 
-  // 1. Electron 主进程内存零开销直连（同时支持本地 Windows 模式与 WSL 模式！）
+  // 1. Electron 主进程内存零开销直连（v2.34+ 原生 authBootstrap/languageServer 导出，支持本地与 WSL 双模）
   const inProc = readInProcessLanguageServerInfo();
   const logEndpoints = readCandidateEndpointsFromLog();
 
   if (inProc.token) {
     const fastEndpoints = [];
-    // 日志中的 HTTP 端口通常即为 inProc.port + 1，无 TLS 握手更快，优先尝试
+    if (inProc.baseUrl) {
+      const parsedBase = parseEnvAddress(inProc.baseUrl);
+      if (parsedBase) fastEndpoints.push(parsedBase);
+    }
+    if (inProc.port > 0) {
+      // 官方规范：getLsPort() 即为 HTTPS 服务端口，优先直连 HTTPS，再兼容 HTTP 端口
+      fastEndpoints.push({ proto: "https", host: "127.0.0.1", port: inProc.port });
+      fastEndpoints.push({ proto: "http", host: "127.0.0.1", port: inProc.port });
+      fastEndpoints.push({ proto: "http", host: "127.0.0.1", port: inProc.port + 1 });
+    }
     for (const ep of logEndpoints) {
       fastEndpoints.push(ep);
     }
-    if (inProc.port > 0) {
-      fastEndpoints.unshift({ proto: "https", host: "127.0.0.1", port: inProc.port });
-      fastEndpoints.unshift({ proto: "http", host: "127.0.0.1", port: inProc.port + 1 });
-    }
+
     const seen = new Set();
     for (const ep of fastEndpoints) {
       const key = `${ep.proto}:${ep.port}`;
-      if (seen.has(key)) continue;
+      if (!ep.port || seen.has(key)) continue;
       seen.add(key);
+      const summary = await probeRetrieveUserQuotaSummary(ep, inProc.token, false);
+      if (summary) {
+        cachedConnection = {
+          endpoint: { proto: ep.proto, host: ep.host || "127.0.0.1", port: ep.port },
+          token: inProc.token,
+          pid: inProc.pid,
+          lsPort: inProc.port || ep.port,
+        };
+        cachedQuotaSummary = summary;
+        cachedQuotaSummaryAt = Date.now();
+        return cachedConnection;
+      }
       const data = await probeGetUserStatus(ep, inProc.token);
       if (data) {
         cachedConnection = {
-          endpoint: { proto: ep.proto, host: "127.0.0.1", port: ep.port },
+          endpoint: { proto: ep.proto, host: ep.host || "127.0.0.1", port: ep.port },
           token: inProc.token,
           pid: inProc.pid,
+          lsPort: inProc.port || ep.port,
         };
         cachedRawStatus = data;
         cachedRawStatusAt = Date.now();
@@ -539,15 +634,15 @@ async function discoverLanguageServer(force) {
     }
   }
 
-  // 2. 进程表 + WSL 回退探测（兼容独立 sidecar 进程场景）
+  // 2. 旧版客户端兼容：进程表 + WSL 回退探测
   const procs = await readRunningLanguageServerProcesses(inProc.activeDistro);
   const candidateEndpoints = [...logEndpoints];
   for (const p of procs) {
-    if (p.httpPort > 0) {
-      candidateEndpoints.push({ proto: "http", host: "127.0.0.1", port: p.httpPort });
-    }
     if (p.httpsPort > 0) {
       candidateEndpoints.push({ proto: "https", host: "127.0.0.1", port: p.httpsPort });
+    }
+    if (p.httpPort > 0) {
+      candidateEndpoints.push({ proto: "http", host: "127.0.0.1", port: p.httpPort });
     }
   }
 
@@ -565,7 +660,7 @@ async function discoverLanguageServer(force) {
     for (const ep of uniqueEndpoints) {
       const data = await probeGetUserStatus(ep, proc.token);
       if (data) {
-        cachedConnection = { endpoint: ep, token: proc.token, pid: proc.pid };
+        cachedConnection = { endpoint: ep, token: proc.token, pid: proc.pid, lsPort: ep.port };
         cachedRawStatus = data;
         cachedRawStatusAt = Date.now();
         return cachedConnection;
@@ -578,6 +673,7 @@ async function discoverLanguageServer(force) {
 }
 
 async function fetchRawUserStatus(forceRefresh) {
+  invalidateStaleCachedConnection();
   const now = Date.now();
   if (!forceRefresh && cachedRawStatus && now - cachedRawStatusAt < CACHE_TTL_MS) {
     return cachedRawStatus;
@@ -607,6 +703,7 @@ async function fetchRawUserStatus(forceRefresh) {
 }
 
 async function fetchRawQuotaSummary(forceRefresh) {
+  invalidateStaleCachedConnection();
   const now = Date.now();
   if (!forceRefresh && cachedQuotaSummary && now - cachedQuotaSummaryAt < CACHE_TTL_MS) {
     return cachedQuotaSummary;
@@ -628,6 +725,9 @@ async function fetchRawQuotaSummary(forceRefresh) {
 
   const conn = await discoverLanguageServer(true);
   if (!conn) return null;
+  if (!forceRefresh && cachedQuotaSummary && Date.now() - cachedQuotaSummaryAt < 3000) {
+    return cachedQuotaSummary;
+  }
   const data = await probeRetrieveUserQuotaSummary(conn.endpoint, conn.token, Boolean(forceRefresh));
   if (data) {
     cachedQuotaSummary = data;
@@ -687,7 +787,7 @@ function classifyModelFamily(label, modelId) {
   if (text.includes("flash")) {
     return { key: "gemini-flash", title: "Gemini Flash 额度", order: 2 };
   }
-  if (text.includes("gemini") || text.includes("pro") || text.includes("orchestrator") || text.includes("carbon") || text.includes("argon") || text.includes("hydrogen")) {
+  if (text.includes("gemini") || text.includes("pro") || text.includes("orchestrator") || text.includes("carbon") || text.includes("argon") || text.includes("hydrogen") || text.includes("neon")) {
     return { key: "gemini-pro", title: "Gemini 额度", order: 1 };
   }
   return { key: `other:${label || modelId}`, title: label || "模型额度", order: 5 };
@@ -699,7 +799,7 @@ function classifySummaryGroup(displayName, description) {
     return {
       id: "gemini",
       title: "Gemini",
-      keywords: ["gemini", "orchestrator", "carbon", "argon", "hydrogen", "flash"],
+      keywords: ["gemini", "orchestrator", "carbon", "argon", "hydrogen", "neon", "flash"],
       order: 1,
     };
   }
@@ -1130,36 +1230,98 @@ function getRendererScript() {
   return "";
 }
 
-function startLocalQuotaServer() {
-  try {
-    const server = http.createServer(async (req, res) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      if (req.method === "OPTIONS") {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-      const u = new URL(req.url || "/", "http://127.0.0.1");
-      if (u.pathname === "/api/quota") {
-        const refresh = u.searchParams.get("refresh") === "1";
-        if (refresh) {
-          cachedConnection = null;
-        }
-        const data = await getQuotaStatus(refresh);
-        res.writeHead(200, {
-          "Content-Type": "application/json; charset=utf-8",
-          "Cache-Control": "no-store",
+function requestLocalHttpJson(port, reqPath, timeoutMs) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: "127.0.0.1", port, path: reqPath, timeout: timeoutMs || 800 },
+      (res) => {
+        const chunks = [];
+        res.on("data", (d) => chunks.push(d));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch {
+            resolve(null);
+          }
         });
-        res.end(JSON.stringify(data));
-        return;
       }
-      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ status: "ok", plugin: "quota-pill", version: "1.3.0" }));
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
     });
-    server.on("error", () => {});
-    server.listen(FIXED_PORT, "127.0.0.1");
-  } catch {}
+    req.on("error", () => resolve(null));
+  });
+}
+
+function startLocalQuotaServer() {
+  let retriedTakeover = false;
+  const createAndListen = () => {
+    try {
+      const server = http.createServer(async (req, res) => {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+        if (req.method === "OPTIONS") {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        const u = new URL(req.url || "/", "http://127.0.0.1");
+        if (u.pathname === "/api/quota") {
+          const refresh = u.searchParams.get("refresh") === "1";
+          if (refresh) {
+            cachedConnection = null;
+          }
+          const data = await getQuotaStatus(refresh);
+          res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          });
+          res.end(JSON.stringify(data));
+          return;
+        }
+        if (u.pathname === "/health") {
+          const inProc = readInProcessLanguageServerInfo();
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(
+            JSON.stringify({
+              status: "ok",
+              plugin: "quota-pill",
+              version: HOOK_VERSION,
+              host: "electron-main",
+              pid: process.pid,
+              lsPort: inProc.port || 0,
+              hasCsrfToken: Boolean(inProc.token),
+              wslDistro: inProc.activeDistro || "",
+            })
+          );
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(
+          JSON.stringify({
+            status: "ok",
+            plugin: "quota-pill",
+            version: HOOK_VERSION,
+            host: "electron-main",
+          })
+        );
+      });
+      server.on("error", async (err) => {
+        if (err && err.code === "EADDRINUSE" && !retriedTakeover) {
+          retriedTakeover = true;
+          // 若 45790 被旧版脱离主进程的独立 server.mjs 占用，则通知其退出并由主进程接管
+          const info = await requestLocalHttpJson(FIXED_PORT, "/health", 800);
+          if (info && info.plugin === "quota-pill" && info.host !== "electron-main") {
+            await requestLocalHttpJson(FIXED_PORT, "/api/shutdown", 800);
+            setTimeout(createAndListen, 250);
+          }
+        }
+      });
+      server.listen(FIXED_PORT, "127.0.0.1");
+    } catch {}
+  };
+  createAndListen();
 }
 
 function installMainProcessHook() {
