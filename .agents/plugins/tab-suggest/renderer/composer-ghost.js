@@ -34,7 +34,7 @@
   qsa('[data-agy-ghost-showing]').forEach((el) => el.removeAttribute('data-agy-ghost-showing'));
 
   window.__AGY_TAB_SUGGEST_INSTALLED__ = true;
-  window.__AGY_TAB_SUGGEST_VERSION__ = '1.1.1';
+  window.__AGY_TAB_SUGGEST_VERSION__ = '1.2.0';
 
   let serviceEnabled = true;
   let pluginEnabled = true;
@@ -42,6 +42,7 @@
   const suggestionCache = new Map(); // conversationId -> { status, suggestion, turnSignature }
   const consumedTurnSigs = new Set();
   const lastRunningByConvo = new Map();
+  const lastCanceledAtByConvo = new Map();
 
   let fastPollTimer = null;
   let fastPollTicks = 0;
@@ -246,18 +247,106 @@
     fastPollTimer = setInterval(() => {
       fastPollTicks++;
       void syncAllComposers(true);
-      if (fastPollTicks >= 18) {
+      if (fastPollTicks >= 28) {
         clearInterval(fastPollTimer);
         fastPollTimer = null;
       }
     }, 450);
   }
 
+  function clipHeadTailDom(text, maxHead = 300, maxTail = 920) {
+    const clean = String(text || '').replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (clean.length <= maxHead + maxTail + 40) return clean;
+    return `${clean.slice(0, maxHead)}\n...(中间已省略)...\n${clean.slice(-maxTail)}`;
+  }
+
+  function quickHashStr(str) {
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) {
+      h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+    }
+    return h.toString(36);
+  }
+
+  // 当本地/WSL 找不到 transcript.jsonl（Remote-SSH 场景）时，直接从当前页面 DOM 提取最后 1~2 轮对话摘要
+  function extractDomTurnContext(conversationId) {
+    const allNodes = qsa('[data-testid="user-message"], [data-testid="agent-response"]');
+    if (allNodes.length === 0) return null;
+
+    const scopedNodes = [];
+    for (const node of allNodes) {
+      if (node.offsetParent === null) continue;
+      const info = extractTurnRunStateFromFiber(node);
+      if (!conversationId || !info?.cascadeId || info.cascadeId === conversationId) {
+        scopedNodes.push(node);
+      }
+    }
+    const targetNodes = scopedNodes.length > 0 ? scopedNodes : allNodes;
+
+    const turns = [];
+    let curTurn = null;
+    for (const node of targetNodes) {
+      const testId = node.getAttribute('data-testid');
+      const txt = String(node.innerText || node.textContent || '').trim();
+      if (!txt) continue;
+      if (testId === 'user-message') {
+        curTurn = { userText: txt, replies: [] };
+        turns.push(curTurn);
+      } else if (testId === 'agent-response' && curTurn) {
+        curTurn.replies.push(txt);
+      }
+    }
+
+    if (turns.length === 0) return null;
+    const lastTurn = turns[turns.length - 1];
+    if (lastTurn.replies.length === 0) return null;
+
+    const finalReply = lastTurn.replies[lastTurn.replies.length - 1];
+    const prevTurn = turns.length >= 2 ? turns[turns.length - 2] : null;
+
+    const blocks = [];
+    if (prevTurn && prevTurn.replies.length > 0) {
+      const prevReply = prevTurn.replies[prevTurn.replies.length - 1];
+      blocks.push(
+        `【上一轮背景摘要】\n用户曾说：${prevTurn.userText.slice(0, 200)}\nAI 上轮结论：${prevReply.slice(-260)}`
+      );
+    }
+    blocks.push(`【本轮用户请求】\n${clipHeadTailDom(lastTurn.userText, 240, 420)}`);
+    blocks.push(`【本轮 AI 最终回复（重点关注结尾结论与待办）】\n${clipHeadTailDom(finalReply, 320, 980)}`);
+    blocks.push('\n请直接输出用户接下来最可能发送的那一句简短指令：');
+
+    const promptText = blocks.join('\n\n');
+    const turnSignature = `dom:${conversationId}:${turns.length}:${quickHashStr(`${lastTurn.userText.slice(0, 80)}|${finalReply.slice(-160)}`)}`;
+    return { promptText, turnSignature };
+  }
+
   async function triggerForConversation(conversationId) {
     if (!conversationId) return;
+    const canceledAt = lastCanceledAtByConvo.get(conversationId) || 0;
+    if (Date.now() - canceledAt < 3500) return;
+
     try {
-      await apiPost('/api/trigger', { conversationId, force: false });
-      startFastPoll();
+      const res = await apiPost('/api/trigger', { conversationId, force: false });
+      if (res && res.ok) {
+        startFastPoll();
+        return;
+      }
+      // 本地与 WSL 均无对应 transcript.jsonl 时（例如 Remote-SSH 远程会话），使用页面 DOM 兜底提取上下文
+      if (res && res.reason === 'transcript_not_found') {
+        await new Promise((r) => setTimeout(r, 180));
+        const domCtx = extractDomTurnContext(conversationId);
+        if (domCtx && domCtx.promptText) {
+          const fallbackRes = await apiPost('/api/trigger', {
+            conversationId,
+            force: false,
+            inlinePromptText: domCtx.promptText,
+            inlineTurnSignature: domCtx.turnSignature,
+          });
+          if (fallbackRes && fallbackRes.ok) {
+            startFastPoll();
+          }
+        }
+      }
     } catch {}
   }
 
@@ -521,9 +610,16 @@
     const btn = e.target?.closest?.('.agy-composer-footer button');
     if (!btn) return;
     const footerEl = btn.closest('.agy-composer-footer');
+    const { conversationId } = extractComposerMetaFromFiber(footerEl);
+    const label = `${btn.getAttribute('aria-label') || ''} ${btn.getAttribute('title') || ''} ${btn.getAttribute('data-testid') || ''}`.toLowerCase();
+    if (/\b(stop|cancel)\b|停止|取消/.test(label)) {
+      if (conversationId) {
+        lastCanceledAtByConvo.set(conversationId, Date.now());
+      }
+      return;
+    }
     const ed = findEditorForFooter(footerEl);
     if (ed && !isEditorCompletelyEmpty(ed)) {
-      const { conversationId } = extractComposerMetaFromFiber(footerEl);
       invalidateCachedSuggestionForConvo(conversationId);
       hideGhostOnEditor(ed);
     }

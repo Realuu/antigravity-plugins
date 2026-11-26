@@ -2,6 +2,7 @@
 /**
  * Antigravity Tab Suggest — 会话上下文解析与常驻本地服务 (127.0.0.1:45794)
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -247,6 +248,8 @@ export async function triggerConversationSuggestion({
   conversationId,
   transcriptPath = '',
   force = false,
+  inlinePromptText = '',
+  inlineTurnSignature = '',
 }) {
   const cid = String(conversationId || '').trim();
   if (!cid) return { ok: false, reason: 'missing_conversation_id' };
@@ -259,16 +262,33 @@ export async function triggerConversationSuggestion({
     return { ok: false, reason: 'missing_credentials' };
   }
 
-  await new Promise((r) => setTimeout(r, 120));
-
-  const resolved = resolveTranscriptFile(cid, transcriptPath);
-  if (!resolved) {
-    return { ok: false, reason: 'transcript_not_found' };
+  const trimmedInline = String(inlinePromptText || '').trim();
+  if (!trimmedInline) {
+    await new Promise((r) => setTimeout(r, 120));
   }
 
-  const ctx = extractTranscriptTurnContext(resolved.transcriptPath, cid);
-  if (!ctx) {
-    return { ok: false, reason: 'turn_incomplete' };
+  const resolved = resolveTranscriptFile(cid, transcriptPath);
+  let ctx = null;
+
+  if (resolved) {
+    ctx = extractTranscriptTurnContext(resolved.transcriptPath, cid);
+    if (!ctx) {
+      return { ok: false, reason: 'turn_incomplete' };
+    }
+  } else if (trimmedInline) {
+    // Remote-SSH 兜底通道：远程会话的 transcript.jsonl 不在本机磁盘，使用前端 DOM 提取的最近轮次上下文
+    const clippedPrompt = trimmedInline.slice(0, 3600);
+    const fallbackSig =
+      String(inlineTurnSignature || '').trim() ||
+      `dom:${cid}:${crypto.createHash('sha1').update(clippedPrompt).digest('hex').slice(0, 12)}`;
+    ctx = {
+      skipReason: '',
+      turnCount: 0,
+      turnSignature: fallbackSig,
+      promptText: clippedPrompt,
+    };
+  } else {
+    return { ok: false, reason: 'transcript_not_found' };
   }
 
   if (ctx.skipReason) {
@@ -460,6 +480,7 @@ export function startSuggestServer() {
           'location',
           'projectId',
           'model',
+          'reasoningEffort',
           'openaiBaseUrl',
           'openaiModel',
         ];
@@ -507,6 +528,8 @@ export function startSuggestServer() {
           conversationId: body.conversationId || '',
           transcriptPath: body.transcriptPath || '',
           force: Boolean(body.force),
+          inlinePromptText: body.inlinePromptText || '',
+          inlineTurnSignature: body.inlineTurnSignature || '',
         });
         sendJson(res, out.queued ? 202 : 200, out);
         return;

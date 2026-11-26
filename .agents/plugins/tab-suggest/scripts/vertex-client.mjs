@@ -15,9 +15,10 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 import zlib from 'node:zlib';
 
-export const SERVICE_VERSION = '1.2.0';
+export const SERVICE_VERSION = '1.2.1';
 export const DEFAULT_MODEL = 'deepseek-ai/deepseek-v4.1-flash-maas';
 export const DEFAULT_LOCATION = 'global';
+export const DEFAULT_REASONING_EFFORT = 'low';
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.deepseek.com/v1';
 export const DEFAULT_OPENAI_MODEL = 'deepseek-chat';
 
@@ -71,6 +72,12 @@ export function normalizeProviderName(rawProvider) {
   const p = String(rawProvider || '').trim().toLowerCase();
   if (p === 'openai' || p === 'openai-compatible') return 'openai-compatible';
   return 'vertex-maas';
+}
+
+export function normalizeReasoningEffort(rawEffort) {
+  const e = String(rawEffort || '').trim().toLowerCase();
+  if (e === 'low' || e === 'medium' || e === 'high') return e;
+  return DEFAULT_REASONING_EFFORT;
 }
 
 export function isPrivateOrLocalHost(hostname) {
@@ -168,6 +175,7 @@ export function loadConfig() {
     location: DEFAULT_LOCATION,
     projectId: '',
     model: DEFAULT_MODEL,
+    reasoningEffort: DEFAULT_REASONING_EFFORT,
     openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
     openaiApiKey: '',
     openaiModel: DEFAULT_OPENAI_MODEL,
@@ -184,6 +192,7 @@ export function loadConfig() {
           provider: normalizeProviderName(raw.provider || defaults.provider),
           location: String(raw.location || defaults.location).trim() || DEFAULT_LOCATION,
           model: String(raw.model || defaults.model).trim() || DEFAULT_MODEL,
+          reasoningEffort: normalizeReasoningEffort(raw.reasoningEffort || defaults.reasoningEffort),
           openaiBaseUrl: String(raw.openaiBaseUrl ?? defaults.openaiBaseUrl).trim() || DEFAULT_OPENAI_BASE_URL,
           openaiApiKey: String(raw.openaiApiKey ?? '').trim(),
           openaiModel: String(raw.openaiModel ?? defaults.openaiModel).trim() || DEFAULT_OPENAI_MODEL,
@@ -205,6 +214,7 @@ export function saveConfig(partial) {
   next.provider = normalizeProviderName(next.provider);
   next.location = String(next.location || DEFAULT_LOCATION).trim() || DEFAULT_LOCATION;
   next.model = String(next.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  next.reasoningEffort = normalizeReasoningEffort(next.reasoningEffort);
   next.projectId = String(next.projectId || '').trim();
   next.openaiBaseUrl = String(next.openaiBaseUrl || DEFAULT_OPENAI_BASE_URL).trim() || DEFAULT_OPENAI_BASE_URL;
   next.openaiApiKey = String(next.openaiApiKey ?? '').trim();
@@ -348,6 +358,7 @@ export function getPublicStatus() {
     location: cfg.location || DEFAULT_LOCATION,
     projectId: effectiveProjectId,
     model: cfg.model || DEFAULT_MODEL,
+    reasoningEffort: normalizeReasoningEffort(cfg.reasoningEffort),
     hasCredentials,
     vertexReady,
     openaiReady,
@@ -912,15 +923,16 @@ export async function generateNextSuggestionFromMessages(contextSummaryText, ove
   }
 
   const isDeepSeekV4 = /deepseek-v4/i.test(model);
-  const sendCompletion = async (includeLowReasoning) => {
+  const reasoningEffort = normalizeReasoningEffort(merged.reasoningEffort);
+  const sendCompletion = async (includeReasoningEffort) => {
     const payload = {
       model,
       messages,
-      max_tokens: 320,
+      max_tokens: includeReasoningEffort ? 1024 : 320,
       temperature: 0.3,
     };
-    if (includeLowReasoning) {
-      payload.reasoning_effort = 'low';
+    if (includeReasoningEffort) {
+      payload.reasoning_effort = reasoningEffort;
     }
     return await smartRequest(endpoint, {
       method: 'POST',

@@ -100,6 +100,15 @@
       border: 1px solid var(--border);
       margin-bottom: 12px;
     }
+    .segmented-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+      padding: 3px;
+      border-radius: 9px;
+      background: var(--seg-bg);
+      border: 1px solid var(--border);
+    }
     .seg-btn {
       height: 28px;
       border: none;
@@ -332,6 +341,16 @@
         <label class="label" for="modelInput">模型 ID (Vertex MaaS)</label>
         <input type="text" class="input" id="modelInput" value="deepseek-ai/deepseek-v4.1-flash-maas" />
       </div>
+
+      <div class="field">
+        <label class="label">推理深度 (Reasoning Effort)</label>
+        <div class="segmented-3" id="effortGroup" role="radiogroup">
+          <button type="button" class="seg-btn active" data-effort="low">低 (low)</button>
+          <button type="button" class="seg-btn" data-effort="medium">中 (medium)</button>
+          <button type="button" class="seg-btn" data-effort="high">高 (high)</button>
+        </div>
+        <div class="hint">DeepSeek V4 生效；低档响应最快（约 3 秒），中高档更深但延迟更高</div>
+      </div>
     </div>
 
     <div class="btn-row">
@@ -369,6 +388,7 @@
     const locationInput = document.getElementById('locationInput');
     const projectInput = document.getElementById('projectInput');
     const modelInput = document.getElementById('modelInput');
+    const effortBtns = Array.from(document.querySelectorAll('#effortGroup .seg-btn'));
 
     const saveTestBtn = document.getElementById('saveTestBtn');
     const statusBox = document.getElementById('statusBox');
@@ -376,6 +396,7 @@
     const refreshBtn = document.getElementById('refreshBtn');
 
     let selectedProvider = 'vertex-maas';
+    let selectedEffort = 'low';
     let userChangedTab = false;
     let isEditingFields = false;
 
@@ -400,6 +421,31 @@
       openaiPane.classList.toggle('pane-hidden', !isOpenAI);
       vertexPane.classList.toggle('pane-hidden', isOpenAI);
     }
+
+    function applyEffortUI(effort) {
+      const normalized = effort === 'medium' || effort === 'high' ? effort : 'low';
+      selectedEffort = normalized;
+      effortBtns.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.effort === normalized);
+      });
+    }
+
+    effortBtns.forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const nextEffort = btn.dataset.effort || 'low';
+        applyEffortUI(nextEffort);
+        try {
+          const resp = await fetch(`${API_BASE}/api/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reasoningEffort: nextEffort }),
+          });
+          if (resp.ok) {
+            showStatus(`推理深度已切换为 ${nextEffort} 档`);
+          }
+        } catch {}
+      });
+    });
 
     tabOpenaiBtn.addEventListener('click', () => {
       userChangedTab = true;
@@ -455,6 +501,7 @@
           locationInput.value = st.location || 'global';
           projectInput.value = st.projectId || '';
           modelInput.value = st.model || 'deepseek-ai/deepseek-v4.1-flash-maas';
+          applyEffortUI(st.reasoningEffort || 'low');
           openaiBaseUrlInput.value = st.openaiBaseUrl || 'https://api.deepseek.com/v1';
           openaiModelInput.value = st.openaiModel || 'deepseek-chat';
         }
@@ -579,6 +626,7 @@
           payload.location = locationInput.value.trim() || 'global';
           payload.projectId = projectInput.value.trim();
           payload.model = modelInput.value.trim() || 'deepseek-ai/deepseek-v4.1-flash-maas';
+          payload.reasoningEffort = selectedEffort;
           if (credJson.value.trim().startsWith('{')) {
             payload.credentialJson = credJson.value.trim();
           }
