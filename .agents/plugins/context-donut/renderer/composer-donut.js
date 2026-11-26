@@ -37,7 +37,6 @@
   document.getElementById('agy-context-donut-styles')?.remove();
   window.__AGY_NATIVE_QSA__('.agy-codex-donut-wrapper').forEach((el) => el.remove());
   window.__AGY_NATIVE_QSA__('.agy-composer-perf-bar').forEach((el) => el.remove());
-  window.__AGY_NATIVE_QSA__('.agy-turn-duration-bar').forEach((el) => el.remove());
 
   try {
     localStorage.removeItem('agy_context_donut_perf_v1');
@@ -46,7 +45,7 @@
   } catch {}
 
   window.__AGY_CONTEXT_DONUT_INSTALLED__ = true;
-  window.__AGY_CONTEXT_DONUT_VERSION__ = '1.8.0';
+  window.__AGY_CONTEXT_DONUT_VERSION__ = '1.9.0';
 
   const STORAGE_KEY_LIMIT = 'agy_context_donut_limit';
   const STORAGE_KEY_SCHEMA = 'agy_context_donut_limit_schema';
@@ -309,85 +308,6 @@
       }
       .agy-donut-compact-btn:hover {
         background: var(--secondary, rgba(255, 255, 255, 0.1));
-      }
-
-      /* 每轮任务顶端总运行时长显示 */
-      @keyframes agyTurnPulse {
-        0%, 100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.38;
-          transform: scale(0.82);
-        }
-      }
-      .agy-turn-duration-bar {
-        display: flex;
-        align-items: center;
-        padding: 6px 8px 2px 8px;
-        user-select: none;
-        pointer-events: auto;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-      }
-      .agy-turn-duration-bar[data-mount-pos="agent-top"] {
-        padding: 2px 8px 6px 8px;
-      }
-      .agy-turn-duration-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        height: 22px;
-        padding: 0 8px;
-        border-radius: 999px;
-        font-size: 11.5px;
-        font-weight: 500;
-        line-height: 1;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.01em;
-        color: #475569;
-        background: rgba(15, 23, 42, 0.042);
-        border: 1px solid rgba(15, 23, 42, 0.075);
-        transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
-      }
-      body.dark .agy-turn-duration-pill,
-      body.theme-dark .agy-turn-duration-pill,
-      html.dark body .agy-turn-duration-pill {
-        color: #94a3b8;
-        background: rgba(255, 255, 255, 0.055);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-      }
-      .agy-turn-duration-pill[data-running="true"] {
-        color: #2563eb;
-        background: rgba(37, 99, 235, 0.075);
-        border-color: rgba(37, 99, 235, 0.18);
-      }
-      body.dark .agy-turn-duration-pill[data-running="true"],
-      body.theme-dark .agy-turn-duration-pill[data-running="true"],
-      html.dark body .agy-turn-duration-pill[data-running="true"] {
-        color: #38bdf8;
-        background: rgba(56, 189, 248, 0.11);
-        border-color: rgba(56, 189, 248, 0.24);
-      }
-      .agy-turn-duration-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: currentColor;
-        flex-shrink: 0;
-        animation: agyTurnPulse 1.4s ease-in-out infinite;
-      }
-      .agy-turn-duration-pill[data-running="false"] .agy-turn-duration-dot {
-        display: none;
-      }
-      .agy-turn-duration-icon {
-        width: 12.5px;
-        height: 12.5px;
-        flex-shrink: 0;
-        display: block;
-      }
-      .agy-turn-duration-pill[data-running="true"] .agy-turn-duration-icon {
-        display: none;
       }
     `;
     document.head.appendChild(style);
@@ -839,317 +759,8 @@
     }
   }
 
-  // 每轮任务顶端总运行时长缓存与渲染逻辑
-  const liveTurnEndMap = new Map();
-
-  function tsToMs(ts) {
-    if (!ts) return 0;
-    if (typeof ts === 'number') return Number.isFinite(ts) ? ts : 0;
-    if (typeof ts === 'string') {
-      const parsed = Date.parse(ts);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-    if (ts instanceof Date) {
-      const t = ts.getTime();
-      return Number.isFinite(t) ? t : 0;
-    }
-    if (typeof ts === 'object' && ts.seconds !== undefined) {
-      const sec = Number(ts.seconds);
-      if (!Number.isFinite(sec) || sec <= 0) return 0;
-      const nanos = Number(ts.nanos || 0);
-      return sec * 1000 + (Number.isFinite(nanos) ? nanos / 1e6 : 0);
-    }
-    return 0;
-  }
-
-  function durationProtoToMs(dur) {
-    if (!dur || typeof dur !== 'object') return 0;
-    const sec = Number(dur.seconds || 0);
-    const nanos = Number(dur.nanos || 0);
-    const total = (Number.isFinite(sec) ? sec : 0) * 1000 + (Number.isFinite(nanos) ? nanos / 1e6 : 0);
-    return total > 0 ? total : 0;
-  }
-
-  function extractTurnMetaFromFiber(domNode) {
-    if (!domNode) return null;
-    const fiberKey = Object.keys(domNode).find(
-      (k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
-    );
-    if (!fiberKey) return null;
-
-    let cur = domNode[fiberKey];
-    let depth = 0;
-    let fallbackMeta = null;
-
-    while (cur && depth < 32) {
-      const props = cur.memoizedProps;
-      if (props && typeof props === 'object' && props.container && Array.isArray(props.container.steps)) {
-        const meta = {
-          container: props.container,
-          steps: props.container.steps,
-          isLatest: Boolean(props.container.isLatest),
-          isRunning: Boolean(props.isRunning),
-          status: props.status,
-          cascadeId: typeof props.cascadeId === 'string' ? props.cascadeId : null,
-        };
-        if (typeof props.isRunning === 'boolean' || typeof props.status === 'number') {
-          return meta;
-        }
-        if (!fallbackMeta) {
-          fallbackMeta = meta;
-        }
-      }
-      cur = cur.return;
-      depth++;
-    }
-
-    return fallbackMeta;
-  }
-
-  function computeTurnTiming(meta) {
-    if (!meta || !Array.isArray(meta.steps) || meta.steps.length === 0) return null;
-    const steps = meta.steps;
-    const userStep = steps.find((s) => s?.step?.case === 'userInput') || steps[0];
-    const startMs = tsToMs(userStep?.metadata?.createdAt) || tsToMs(steps[0]?.metadata?.createdAt);
-    if (startMs <= 0) return null;
-
-    const turnKey = `${meta.cascadeId || 'local'}:${startMs}`;
-    const active =
-      Boolean(meta.isLatest) &&
-      (Boolean(meta.isRunning) || (typeof meta.status === 'number' && meta.status !== 1 && meta.status !== 0));
-
-    const agentSteps = steps.filter((s) => s?.step?.case !== 'userInput');
-
-    if (active) {
-      const now = Date.now();
-      if (liveTurnEndMap.size > 200) {
-        const oldestKey = liveTurnEndMap.keys().next().value;
-        if (oldestKey !== undefined) liveTurnEndMap.delete(oldestKey);
-      }
-      liveTurnEndMap.set(turnKey, now);
-      return {
-        active: true,
-        startMs,
-        endMs: now,
-        durationMs: Math.max(0, now - startMs),
-        stepCount: Math.max(1, agentSteps.length),
-      };
-    }
-
-    let maxEndMs = startMs;
-    for (const s of steps) {
-      if (!s) continue;
-      const candidates = [
-        tsToMs(s?.taskDetails?.movedToBackgroundAt),
-        tsToMs(s?.metadata?.completedAt),
-        tsToMs(s?.metadata?.lastModifiedAt),
-        tsToMs(s?.metadata?.viewableAt),
-        tsToMs(s?.metadata?.createdAt),
-      ];
-      if (s?.step?.case === 'plannerResponse' && s?.step?.value?.thinkingDuration) {
-        const created = tsToMs(s?.metadata?.createdAt);
-        const thinkMs = durationProtoToMs(s.step.value.thinkingDuration);
-        if (created > 0 && thinkMs > 0) {
-          candidates.push(created + thinkMs);
-        }
-      }
-      for (const c of candidates) {
-        if (c > maxEndMs) maxEndMs = c;
-      }
-    }
-
-    if (agentSteps.length === 0 && maxEndMs <= startMs) {
-      return null;
-    }
-
-    const lastAgentStep = agentSteps[agentSteps.length - 1];
-    const hasExplicitEnd =
-      tsToMs(lastAgentStep?.metadata?.completedAt) > 0 ||
-      tsToMs(lastAgentStep?.taskDetails?.movedToBackgroundAt) > 0;
-    if (!hasExplicitEnd && liveTurnEndMap.has(turnKey)) {
-      maxEndMs = Math.max(maxEndMs, liveTurnEndMap.get(turnKey));
-    }
-
-    return {
-      active: false,
-      startMs,
-      endMs: maxEndMs,
-      durationMs: Math.max(0, maxEndMs - startMs),
-      stepCount: agentSteps.length,
-    };
-  }
-
-  function formatTurnDuration(ms, isRunning) {
-    const safeMs = Math.max(0, Number(ms || 0));
-    if (isRunning) {
-      const sec = Math.floor(safeMs / 1000);
-      if (sec < 60) return `运行中 · ${sec}s`;
-      if (sec < 3600) {
-        const m = Math.floor(sec / 60);
-        const s = String(sec % 60).padStart(2, '0');
-        return `运行中 · ${m}m ${s}s`;
-      }
-      const h = Math.floor(sec / 3600);
-      const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-      const s = String(sec % 60).padStart(2, '0');
-      return `运行中 · ${h}h ${m}m ${s}s`;
-    }
-
-    if (safeMs < 1000) return '总耗时 <1s';
-    if (safeMs < 60000) {
-      const v = (safeMs / 1000).toFixed(1);
-      return `总耗时 ${v.endsWith('.0') ? v.slice(0, -2) : v}s`;
-    }
-    const sec = Math.round(safeMs / 1000);
-    if (sec < 3600) {
-      const m = Math.floor(sec / 60);
-      const s = String(sec % 60).padStart(2, '0');
-      return `总耗时 ${m}m ${s}s`;
-    }
-    const h = Math.floor(sec / 3600);
-    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    const s = String(sec % 60).padStart(2, '0');
-    return `总耗时 ${h}h ${m}m ${s}s`;
-  }
-
-  function formatClockTime(ms) {
-    try {
-      return new Date(ms).toLocaleTimeString('zh-CN', { hour12: false });
-    } catch {
-      return '';
-    }
-  }
-
-  function isTurnTimerDisabledByPlugin() {
-    for (const usage of latestUsageCache.values()) {
-      if (usage && usage.pluginEnabled === false) return true;
-    }
-    return false;
-  }
-
-  function ensureTurnDurationBar(hostEl, mountPos, prepend) {
-    if (!hostEl) return null;
-    let bar = hostEl.querySelector(':scope > .agy-turn-duration-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.className = 'agy-turn-duration-bar';
-      bar.setAttribute('data-no-scroll-jump', 'true');
-      bar.setAttribute('data-find-ignore', 'true');
-      bar.setAttribute('data-screenshot-volatile', 'true');
-      bar.innerHTML = `
-        <span class="agy-turn-duration-pill" data-running="false">
-          <span class="agy-turn-duration-dot" aria-hidden="true"></span>
-          <svg class="agy-turn-duration-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="8" cy="8" r="6"></circle>
-            <path d="M8 4.8V8l2.2 1.4"></path>
-          </svg>
-          <span class="agy-turn-duration-text"></span>
-        </span>
-      `;
-      if (prepend && hostEl.firstChild) {
-        hostEl.insertBefore(bar, hostEl.firstChild);
-      } else {
-        hostEl.appendChild(bar);
-      }
-    }
-    if (bar.getAttribute('data-mount-pos') !== mountPos) {
-      bar.setAttribute('data-mount-pos', mountPos);
-    }
-    return bar;
-  }
-
-  function applyTurnTimingToBar(bar, timing) {
-    if (!bar) return;
-    if (!timing) {
-      bar.style.display = 'none';
-      return;
-    }
-    bar.style.display = 'flex';
-    const labelText = formatTurnDuration(timing.durationMs, timing.active);
-    const startStr = formatClockTime(timing.startMs);
-    const endStr = timing.active ? '进行中' : formatClockTime(timing.endMs);
-    const tooltipText = `开始 ${startStr} · ${timing.active ? '当前进行中' : `结束 ${endStr}`} · ${timing.stepCount} 步`;
-    const sig = `${timing.active}:${labelText}:${tooltipText}`;
-    if (bar._lastSig === sig) return;
-    bar._lastSig = sig;
-
-    const pill = bar.querySelector('.agy-turn-duration-pill');
-    const textEl = bar.querySelector('.agy-turn-duration-text');
-    if (pill) {
-      pill.setAttribute('data-running', timing.active ? 'true' : 'false');
-      pill.setAttribute('title', tooltipText);
-    }
-    if (textEl) {
-      textEl.textContent = labelText;
-    }
-  }
-
-  function syncAllTurnTimers() {
-    injectStyles();
-    if (isTurnTimerDisabledByPlugin()) {
-      window.__AGY_NATIVE_QSA__('.agy-turn-duration-bar').forEach((el) => {
-        el.style.display = 'none';
-      });
-      return;
-    }
-
-    const userMsgEls = window.__AGY_NATIVE_QSA__('[data-testid="user-message"]');
-    const handledAgentResponses = new Set();
-
-    for (const userMsgEl of userMsgEls) {
-      const meta = extractTurnMetaFromFiber(userMsgEl);
-      const timing = meta ? computeTurnTiming(meta) : null;
-      const turnRoot = userMsgEl.parentElement;
-      const agentResp = turnRoot?.querySelector(':scope > [data-testid="agent-response"]');
-      if (agentResp) handledAgentResponses.add(agentResp);
-
-      const isBubbleMode = Boolean(userMsgEl.querySelector('[data-testid="user-input-step"].items-end'));
-      let hostEl = null;
-      let mountPos = 'sticky';
-      let prepend = false;
-
-      if (isBubbleMode && agentResp) {
-        hostEl = agentResp;
-        mountPos = 'agent-top';
-        prepend = true;
-      } else {
-        hostEl = userMsgEl.querySelector('.md-sticky-message-bleed') || userMsgEl.firstElementChild || userMsgEl;
-        mountPos = 'sticky';
-        prepend = false;
-      }
-
-      if (!timing) {
-        const existingBar = hostEl?.querySelector(':scope > .agy-turn-duration-bar');
-        if (existingBar) existingBar.style.display = 'none';
-        continue;
-      }
-
-      const bar = ensureTurnDurationBar(hostEl, mountPos, prepend);
-      applyTurnTimingToBar(bar, timing);
-    }
-
-    const allAgentResps = window.__AGY_NATIVE_QSA__('[data-testid="agent-response"]');
-    for (const agentResp of allAgentResps) {
-      if (handledAgentResponses.has(agentResp)) continue;
-      const turnRoot = agentResp.parentElement;
-      if (turnRoot?.querySelector(':scope > [data-testid="user-message"]')) continue;
-
-      const meta = extractTurnMetaFromFiber(agentResp);
-      const timing = meta ? computeTurnTiming(meta) : null;
-      if (!timing) {
-        const existingBar = agentResp.querySelector(':scope > .agy-turn-duration-bar');
-        if (existingBar) existingBar.style.display = 'none';
-        continue;
-      }
-
-      const bar = ensureTurnDurationBar(agentResp, 'agent-top', true);
-      applyTurnTimingToBar(bar, timing);
-    }
-  }
-
-  // 使用 MutationObserver 监听会话切换或新对话框渲染，立即挂载甜甜圈与任务计时条
+  // 使用 MutationObserver 监听会话切换或新对话框渲染，立即挂载甜甜圈
   let rafScheduled = false;
-  let turnRafScheduled = false;
   const observer = new MutationObserver(() => {
     const footers = window.__AGY_NATIVE_QSA__('.agy-composer-footer');
     let needsMount = false;
@@ -1166,44 +777,19 @@
         void refreshAllFooters(true);
       });
     }
-
-    const userMsgs = window.__AGY_NATIVE_QSA__('[data-testid="user-message"]');
-    let needsTurnMount = false;
-    for (const um of userMsgs) {
-      const turnRoot = um.parentElement;
-      const inTurn =
-        um.querySelector('.agy-turn-duration-bar') ||
-        turnRoot?.querySelector(':scope > [data-testid="agent-response"] > .agy-turn-duration-bar');
-      if (!inTurn) {
-        needsTurnMount = true;
-        break;
-      }
-    }
-    if (needsTurnMount && !turnRafScheduled) {
-      turnRafScheduled = true;
-      requestAnimationFrame(() => {
-        turnRafScheduled = false;
-        syncAllTurnTimers();
-      });
-    }
   });
 
   let pollTimer = null;
-  let turnTickTimer = null;
 
   function start() {
     injectStyles();
     void refreshAllFooters(true);
-    syncAllTurnTimers();
     if (document.body) {
       observer.observe(document.body, { childList: true, subtree: true });
     }
     pollTimer = setInterval(() => {
       void refreshAllFooters(true);
     }, 2000);
-    turnTickTimer = setInterval(() => {
-      syncAllTurnTimers();
-    }, 500);
   }
 
   window.__AGY_CONTEXT_DONUT_CLEANUP__ = () => {
@@ -1213,10 +799,6 @@
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
-    }
-    if (turnTickTimer) {
-      clearInterval(turnTickTimer);
-      turnTickTimer = null;
     }
     if (hoverHideTimer) {
       clearTimeout(hoverHideTimer);
@@ -1230,7 +812,6 @@
     document.getElementById('agy-context-donut-styles')?.remove();
     window.__AGY_NATIVE_QSA__('.agy-codex-donut-wrapper').forEach((el) => el.remove());
     window.__AGY_NATIVE_QSA__('.agy-composer-perf-bar').forEach((el) => el.remove());
-    window.__AGY_NATIVE_QSA__('.agy-turn-duration-bar').forEach((el) => el.remove());
   };
 
   if (document.readyState === 'loading') {

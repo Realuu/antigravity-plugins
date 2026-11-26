@@ -11,12 +11,13 @@
 | 插件 | 版本 | 核心能力 | 架构形态 | 本地端口 | WSL 兼容 | 详细说明 |
 | --- | --- | --- | --- | --- | --- | --- |
 | **Codex Aurora Theme** (`codex-theme`) | `1.5.1` | 浅色模式极光冰蓝顶部栏 + 左侧任务栏 Windows Acrylic 亚克力微透玻璃效果，深色模式与内置浏览器无感兼容 | 主进程钩子 + 渲染层 | 无 | Windows UI | [README](.agents/plugins/codex-theme/README.md) |
-| **Context Donut** (`context-donut`) | `1.2.0` | 输入框工具栏实时 SVG 上下文甜甜圈（精确解析 `transcript.jsonl` 缓存命中与 Token 占比、512k/1M 切换、一键 `/compact`）、每轮任务顶端总耗时计时条、右侧监控 Sidecar | 主进程钩子 + 渲染层 + Sidecar | `127.0.0.1:45789` | Windows + WSL 2 双模 | [README](.agents/plugins/context-donut/README.md) |
+| **Context Donut** (`context-donut`) | `1.3.0` | 输入框工具栏实时 SVG 上下文甜甜圈（精确解析 `transcript.jsonl` 缓存命中与 Token 占比、512k/1M 切换、一键 `/compact`）、右侧监控 Sidecar | 主进程钩子 + 渲染层 + Sidecar | `127.0.0.1:45789` | Windows + WSL 2 双模 | [README](.agents/plugins/context-donut/README.md) |
 | **Quota Pill** (`quota-pill`) | `1.3.0` | 左下角 Codex 风格四分段动态进度环按钮，悬浮/点击展示真实套餐来源、各模型额度池剩余比例与重置倒计时 | 主进程钩子 + 渲染层 + Sidecar | `127.0.0.1:45790` | Windows + WSL 2 双模 | [README](.agents/plugins/quota-pill/README.md) |
 | **Cowart Sidebar** (`cowart-sidebar`) | `1.0.0` | 左侧任务栏独立 Cowart 入口，支持全屏无限画布、底部悬浮提问胶囊、提问自动切换「左画布 + 右窄聊天栏」分栏与工作区切换 | 主进程钩子 + 渲染层 + 本地服务 | `127.0.0.1:45791` | Windows UI | [README](.agents/plugins/cowart-sidebar/README.md) |
 | **Notion Sidebar** (`notion-sidebar`) | `1.0.0` | 左侧任务栏独立 Notion 笔记入口，基于 OAuth 2.1 PKCE 直连官方 Notion Hosted MCP，支持页面阅读、行内轻量编辑、`/` 插入区块与专属项目分栏提问 | 主进程钩子 + 渲染层 + 本地服务 | `127.0.0.1:45793` | Windows UI | [README](.agents/plugins/notion-sidebar/README.md) |
 | **WSL Terminal** (`wsl-terminal`) | `1.0.0` | 在右侧辅助面板打开原生交互式多标签 WSL Linux 终端，自动映射当前工作区路径（`/mnt/...`），支持真彩色、快捷键中断与后台会话保持 | 纯标准 Sidecar（不改 `app.asar`） | 动态端口 | WSL 2 | [README](.agents/plugins/wsl-terminal/README.md) |
 | **Tab Suggest** (`tab-suggest`) | `1.2.0` | 每轮任务结束后支持通用 OpenAI 兼容接口或 Vertex AI 自动在输入框内渲染下一条幽灵灰字建议，按 `Tab` 键一键填入 | 主进程钩子 + Stop Hook + 渲染层 + Sidecar | `127.0.0.1:45794` | Windows + WSL 2 双模 | [README](.agents/plugins/tab-suggest/README.md) |
+| **Task Timer** (`task-timer`) | `1.0.0` | 每轮对话任务顶端实时读秒并定格显示整轮任务总运行时长（纯首尾挂钟差值），标准流吸顶常驻，悬停查看起止时刻与步数明细 | 主进程钩子 + 渲染层 | 无 | Windows UI（双模会话通用） | [README](.agents/plugins/task-timer/README.md) |
 
 ---
 
@@ -43,8 +44,8 @@ cd antigravity-plugins
 ### 2. 使用统一管理菜单（推荐）
 
 直接双击根目录下的 [`manage.cmd`](manage.cmd)，在交互菜单中按需选择：
-- 输入 `1` ~ `7`：安装或更新单个插件
-- 输入 `A`：一键安装 / 更新全部 7 个插件
+- 输入 `1` ~ `8`：安装或更新单个插件
+- 输入 `A`：一键安装 / 更新全部 8 个插件
 - 输入 `S`：检查全部插件的安装与挂载状态
 - 输入 `U`：进入卸载菜单，按需卸载单个或全部插件
 
@@ -74,6 +75,7 @@ node .agents/plugins/cowart-sidebar/installer/install-cowart.mjs install
 node .agents/plugins/notion-sidebar/installer/install-notion.mjs install
 node .agents/plugins/wsl-terminal/installer/install-wsl-terminal.mjs install
 node .agents/plugins/tab-suggest/installer/install-tab-suggest.mjs install
+node .agents/plugins/task-timer/installer/install-task-timer.mjs install
 ```
 
 > 安装脚本会将插件同步到全局配置目录 `~/.gemini/config/plugins/<plugin-name>`（`context-donut`、`quota-pill` 与 `tab-suggest` 还会自动同步到已安装的 WSL 2 发行版），并在支持热加载的场景下尝试实时挂载到当前运行中的 Antigravity 窗口。
@@ -87,11 +89,12 @@ antigravity-plugins/
 ├── .agents/
 │   └── plugins/
 │       ├── codex-theme/        # Codex 极光冰蓝主题
-│       ├── context-donut/      # 上下文甜甜圈 + 任务耗时 + Sidecar
+│       ├── context-donut/      # 上下文甜甜圈 + Sidecar
 │       ├── cowart-sidebar/     # Cowart 独立侧栏入口
 │       ├── notion-sidebar/     # Notion 独立侧栏工作台
 │       ├── quota-pill/         # 左下角四分段额度显示
 │       ├── tab-suggest/        # 任务结束对话框幽灵补全 + 右上角 Sidecar
+│       ├── task-timer/         # 每轮任务顶端实时读秒 + 总运行时长显示
 │       └── wsl-terminal/       # 右侧辅助面板 WSL 终端
 ├── cmd/                        # 各插件独立安装 / 卸载批处理脚本
 ├── manage.cmd                  # 根目录统一交互管理入口
@@ -105,7 +108,7 @@ antigravity-plugins/
 
 1. **Antigravity 客户端自动更新后 UI 插件不显示怎么办？**
    - `wsl-terminal` 为纯标准 Sidecar 插件，客户端更新不会受影响。
-   - 其余 6 个深度集成 UI 的插件通过对客户端 `app.asar` 的入口文件做**独立块标记增量注入**实现。当 Antigravity 桌面客户端覆盖升级后，重新运行一次 `manage.cmd`（输入 `A` 或对应编号）即可无损恢复挂载。
+   - 其余 7 个深度集成 UI 的插件通过对客户端 `app.asar` 的入口文件做**独立块标记增量注入**实现。当 Antigravity 桌面客户端覆盖升级后，重新运行一次 `manage.cmd`（输入 `A` 或对应编号）即可无损恢复挂载。
 2. **端口占用与隐私安全**
    - 所有本地桥接与舞台服务均仅监听本机回环地址 `127.0.0.1`（端口 `45789`、`45790`、`45791`、`45793`、`45794`），不向外部网络暴露。
    - `notion-sidebar` 的 OAuth 凭据与 `tab-suggest` 的 Google Cloud JSON 凭证仅保存在你本机用户目录，不包含任何硬编码密钥。

@@ -1,11 +1,11 @@
 ---
 name: context-donut
-description: 管理与查看 Codex 风格上下文甜甜圈（Context Donut，兼容 Windows 本地与 WSL 双模式）以及每轮任务顶端总运行时长计时条，支持打开右侧实时监控 Sidecar 面板。
+description: 管理与查看 Codex 风格上下文甜甜圈（Context Donut，兼容 Windows 本地与 WSL 双模式），支持打开右侧实时监控 Sidecar 面板。
 ---
 
 # Context Donut (上下文甜甜圈 · Windows & WSL 双模版)
 
-当用户需要查询当前会话的上下文 Token 占用、打开实时监控 Sidecar 面板，或者安装/更新/卸载上下文甜甜圈及每轮任务总运行时长计时条（无缝兼容 **Windows 本地模式** 与 **WSL 2 模式**）时使用本技能。
+当用户需要查询当前会话的上下文 Token 占用、打开实时监控 Sidecar 面板，或者安装/更新/卸载上下文甜甜圈（无缝兼容 **Windows 本地模式** 与 **WSL 2 模式**）时使用本技能。
 
 ## 1. 一键打开右侧 Sidecar 监控面板
 在回复中附上以下 Sidecar 胶囊链接，用户点击即可在右侧辅助面板展开或切换实时监控台：

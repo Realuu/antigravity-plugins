@@ -1,0 +1,8 @@
+{
+  "name": "task-timer",
+  "version": "1.0.1",
+  "displayName": "Task Timer (任务总运行时长)",
+  "description": "在 Antigravity 每轮对话任务顶端实时读秒并定格显示整轮任务总运行时长（纯首尾挂钟差值），悬停查看起止时间与步数明细。",
+  "author": "Realuu",
+  "main": "bridge/electron-main-hook.cjs"
+}

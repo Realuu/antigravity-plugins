@@ -38,16 +38,40 @@
   const STORAGE_FLOAT_SIZE = 'agy_notion_float_size';
   const STORAGE_LAST_NOTION_CONVO = 'agy_notion_last_convo_path';
   const STORAGE_PAGE_CONVOS = 'agy_notion_page_convos';
+  const STORAGE_OPEN_TABS = 'agy_notion_open_tabs';
+  const STORAGE_ACTIVE_TAB = 'agy_notion_active_tab_key';
+  const STORAGE_INJECTED_PAGES = 'agy_notion_convo_injected_pages';
+  const DRAFT_TAB_KEY = '__draft__';
   const DEFAULT_FLOAT_SIZE = { width: 440, height: 560 };
 
-  function loadSavedPageConvos() {
+  function loadJsonObjectStorage(key, fallback) {
     try {
-      const raw = JSON.parse(localStorage.getItem(STORAGE_PAGE_CONVOS) || '{}');
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        return raw;
+      const raw = JSON.parse(localStorage.getItem(key) || 'null');
+      if (raw && typeof raw === 'object') return raw;
+    } catch {}
+    return fallback;
+  }
+
+  function loadSavedPageConvos() {
+    const obj = loadJsonObjectStorage(STORAGE_PAGE_CONVOS, {});
+    return Array.isArray(obj) ? {} : obj;
+  }
+
+  function loadSavedOpenTabs() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(STORAGE_OPEN_TABS) || '[]');
+      if (Array.isArray(arr)) {
+        return arr
+          .filter((t) => t && typeof t.key === 'string' && typeof t.path === 'string')
+          .slice(0, 20);
       }
     } catch {}
-    return {};
+    return [];
+  }
+
+  function loadSavedInjectedPages() {
+    const obj = loadJsonObjectStorage(STORAGE_INJECTED_PAGES, {});
+    return Array.isArray(obj) ? {} : obj;
   }
 
   function loadSavedFloatSize() {
@@ -132,6 +156,14 @@
     restoringConvo: false,
     lastNotionConvoPath: localStorage.getItem(STORAGE_LAST_NOTION_CONVO) || '',
     pageConvoMap: loadSavedPageConvos(),
+    openTabs: loadSavedOpenTabs(),
+    activeTabKey: localStorage.getItem(STORAGE_ACTIVE_TAB) || '',
+    convoInjectedPageMap: loadSavedInjectedPages(),
+    convoPickerOpen: false,
+    convoPickerFilter: '',
+    convoCatalog: { pinned: [], recent: [], loadedAt: 0 },
+    injectingNativeSend: false,
+    bypassNativeIntercept: false,
     lastSubmittedPrompt: '',
     liveConvoTitle: '',
     selectedQuote: '',
@@ -155,10 +187,13 @@
   let windowResizeHandler = null;
   let navClickHandler = null;
   let auxToggleClickHandler = null;
+  let nativeKeydownHandler = null;
+  let nativeSendClickHandler = null;
   let messageHandler = null;
   let docPointerHandler = null;
   let stageActivateHandler = null;
   let observerRaf = false;
+  let lastRenderedTabsSig = '';
 
   function isDarkTheme() {
     try {
@@ -231,6 +266,111 @@
       body[data-agy-notion-submitting="true"] .agy-notion-main-col [contenteditable="true"][role="textbox"] {
         color: transparent !important;
         caret-color: transparent !important;
+      }
+
+      /* 对话气泡内折叠式「引用页面」卡片 */
+      .agy-notion-ctx-fold {
+        margin-top: 2px;
+        border-radius: 8px;
+        border: 1px solid rgba(15, 23, 42, 0.085);
+        background: rgba(15, 23, 42, 0.032);
+        font-size: 12px;
+        color: #475569;
+        overflow: hidden;
+        max-width: 100%;
+        user-select: none;
+      }
+      body.theme-dark .agy-notion-ctx-fold,
+      body.dark .agy-notion-ctx-fold {
+        background: rgba(255, 255, 255, 0.055);
+        border-color: rgba(255, 255, 255, 0.11);
+        color: #cbd5e1;
+      }
+      .agy-notion-ctx-summary {
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 9px;
+        cursor: pointer;
+        font-weight: 500;
+        line-height: 1.4;
+        outline: none;
+        transition: background-color 0.12s ease, color 0.12s ease;
+      }
+      .agy-notion-ctx-summary::-webkit-details-marker {
+        display: none;
+      }
+      .agy-notion-ctx-summary:hover {
+        background: rgba(15, 23, 42, 0.045);
+        color: #0f172a;
+      }
+      body.theme-dark .agy-notion-ctx-summary:hover,
+      body.dark .agy-notion-ctx-summary:hover {
+        background: rgba(255, 255, 255, 0.07);
+        color: #f8fafc;
+      }
+      .agy-notion-ctx-arrow {
+        font-size: 10px;
+        line-height: 1;
+        color: #94a3b8;
+        transition: transform 0.15s ease;
+        flex-shrink: 0;
+      }
+      .agy-notion-ctx-fold[open] .agy-notion-ctx-arrow {
+        transform: rotate(90deg);
+      }
+      .agy-notion-ctx-summary-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .agy-notion-ctx-body {
+        padding: 6px 10px 8px;
+        border-top: 1px solid rgba(15, 23, 42, 0.065);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11.5px;
+        line-height: 1.5;
+        color: #64748b;
+        user-select: text;
+        word-break: break-all;
+      }
+      body.theme-dark .agy-notion-ctx-body,
+      body.dark .agy-notion-ctx-body {
+        border-top-color: rgba(255, 255, 255, 0.08);
+        color: #94a3b8;
+      }
+      .agy-notion-ctx-row {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .agy-notion-ctx-label {
+        flex-shrink: 0;
+        color: #94a3b8;
+      }
+      .agy-notion-ctx-link {
+        color: #2383e2;
+        text-decoration: none;
+        cursor: pointer;
+        word-break: break-word;
+      }
+      .agy-notion-ctx-link:hover {
+        text-decoration: underline;
+      }
+      .agy-notion-ctx-quote {
+        margin-top: 2px;
+        padding: 4px 8px;
+        border-left: 2px solid rgba(35, 131, 226, 0.5);
+        background: rgba(35, 131, 226, 0.05);
+        border-radius: 0 5px 5px 0;
+        color: inherit;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* 2. 一体化无框纯白工作区画布（复刻 Codex 图 1 & 图 2） */
@@ -592,29 +732,182 @@
         gap: 4px;
         min-width: 0;
         flex: 1 1 0%;
+        overflow: hidden;
+      }
+      .agy-notion-tab-scroll {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        flex: 0 1 auto;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+      }
+      .agy-notion-tab-scroll::-webkit-scrollbar {
+        display: none;
       }
       .agy-notion-split-tab {
         height: 28px;
-        max-width: 240px;
-        padding: 0 7px 0 10px;
+        max-width: 175px;
+        padding: 0 6px 0 10px;
         border-radius: 999px;
-        border: 1px solid rgba(15, 23, 42, 0.11);
-        background: #ffffff;
-        color: #1e293b;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #64748b;
         font-size: 12.5px;
-        font-weight: 500;
+        font-weight: 450;
         display: inline-flex;
         align-items: center;
         gap: 6px;
         min-width: 0;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+        flex-shrink: 0;
+        cursor: pointer;
+        transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+      }
+      .agy-notion-split-tab:hover {
+        background: rgba(15, 23, 42, 0.045);
+        color: #1e293b;
+      }
+      .agy-notion-split-tab.is-active {
+        max-width: 215px;
+        border-color: rgba(15, 23, 42, 0.12);
+        background: #ffffff;
+        color: #0f172a;
+        font-weight: 550;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
       }
       body.theme-dark .agy-notion-split-tab,
       body.dark .agy-notion-split-tab {
-        background: rgba(255, 255, 255, 0.07);
+        color: #94a3b8;
+      }
+      body.theme-dark .agy-notion-split-tab:hover,
+      body.dark .agy-notion-split-tab:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #e2e8f0;
+      }
+      body.theme-dark .agy-notion-split-tab.is-active,
+      body.dark .agy-notion-split-tab.is-active {
+        background: rgba(255, 255, 255, 0.09);
+        border-color: rgba(255, 255, 255, 0.14);
+        color: #f8fafc;
+        box-shadow: none;
+      }
+
+      /* 「＋」添加/切换左侧会话浮层面板 */
+      .agy-notion-convo-picker {
+        position: absolute;
+        top: 40px;
+        left: 10px;
+        width: min(326px, calc(100% - 20px));
+        border-radius: 14px;
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        box-shadow: 0 18px 42px -10px rgba(15, 23, 42, 0.24), 0 2px 8px rgba(15, 23, 42, 0.06);
+        padding: 6px;
+        display: none;
+        flex-direction: column;
+        gap: 5px;
+        z-index: 88;
+      }
+      .agy-notion-convo-picker.is-open {
+        display: flex;
+      }
+      body.theme-dark .agy-notion-convo-picker,
+      body.dark .agy-notion-convo-picker {
+        background: #23242c;
+        border-color: rgba(255, 255, 255, 0.13);
+        box-shadow: 0 20px 46px -10px rgba(0, 0, 0, 0.65);
+      }
+      .agy-notion-picker-search {
+        width: 100%;
+        height: 31px;
+        padding: 0 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        background: #f8fafc;
+        color: #0f172a;
+        font-size: 12.5px;
+        outline: none;
+      }
+      .agy-notion-picker-search:focus {
+        border-color: rgba(35, 131, 226, 0.5);
+        background: #ffffff;
+      }
+      body.theme-dark .agy-notion-picker-search,
+      body.dark .agy-notion-picker-search {
+        background: rgba(255, 255, 255, 0.06);
         border-color: rgba(255, 255, 255, 0.12);
         color: #f1f5f9;
-        box-shadow: none;
+      }
+      .agy-notion-picker-list {
+        max-height: 310px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding-right: 2px;
+      }
+      .agy-notion-picker-section {
+        padding: 6px 8px 3px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #94a3b8;
+        user-select: none;
+      }
+      .agy-notion-picker-row {
+        width: 100%;
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        padding: 7px 9px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12.5px;
+        color: #1e293b;
+        cursor: pointer;
+        text-align: left;
+      }
+      .agy-notion-picker-row:hover {
+        background: rgba(15, 23, 42, 0.055);
+      }
+      .agy-notion-picker-row.is-new {
+        font-weight: 550;
+        color: #2383e2;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+        border-radius: 8px 8px 0 0;
+        margin-bottom: 2px;
+      }
+      body.theme-dark .agy-notion-picker-row,
+      body.dark .agy-notion-picker-row {
+        color: #e2e8f0;
+      }
+      body.theme-dark .agy-notion-picker-row:hover,
+      body.dark .agy-notion-picker-row:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      body.theme-dark .agy-notion-picker-row.is-new,
+      body.dark .agy-notion-picker-row.is-new {
+        color: #60a5fa;
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+      }
+      .agy-notion-picker-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .agy-notion-picker-meta {
+        flex-shrink: 0;
+        font-size: 11px;
+        color: #94a3b8;
+        max-width: 92px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .agy-notion-tab-close {
         width: 18px;
@@ -1819,15 +2112,11 @@
           </button>
         </div>
 
-        <!-- 形态 C：Split 右侧停靠分栏顶栏（复刻 Codex 图 1：胶囊标签 + 新建 + 切悬浮窗 + 收起） -->
+        <!-- 形态 C：Split 右侧停靠分栏顶栏（多标签并列胶囊栏 + 「＋」添加左侧会话 + 切悬浮窗 + 收起） -->
         <div class="agy-notion-chrome-split-bar" data-role="chrome-split-bar">
           <div class="agy-notion-split-tabs">
-            <div class="agy-notion-split-tab" title="当前 Notion 会话">
-              ${BUBBLE_ICON_SVG}
-              <span class="agy-notion-title-ellipsis" data-role="split-title-text">新对话</span>
-              <button type="button" class="agy-notion-tab-close" data-role="split-tab-close" title="关闭并新建对话">×</button>
-            </div>
-            <button type="button" class="agy-notion-chrome-icon-btn" data-role="split-new-btn" title="新建 Notion 对话">
+            <div class="agy-notion-tab-scroll" data-role="split-tab-strip"></div>
+            <button type="button" class="agy-notion-chrome-icon-btn" data-role="split-new-btn" title="新建对话或从左侧选择添加会话">
               ${PLUS_SVG}
             </button>
           </div>
@@ -1839,6 +2128,12 @@
               ${SIDEBAR_PANE_SVG}
             </button>
           </div>
+        </div>
+
+        <!-- 「＋」选择添加左侧会话 / 新建对话浮层面板 -->
+        <div class="agy-notion-convo-picker" data-role="convo-picker">
+          <input type="text" class="agy-notion-picker-search" data-role="picker-search" placeholder="搜索置顶对话或历史会话..." autocomplete="off" />
+          <div class="agy-notion-picker-list" data-role="picker-list"></div>
         </div>
 
         <!-- Float 顶栏弹出菜单 -->
@@ -1862,6 +2157,304 @@
     return chrome;
   }
 
+  // --- 多标签页状态管理与「＋」左侧会话选择浮层 ---
+  function persistOpenTabs() {
+    try {
+      localStorage.setItem(STORAGE_OPEN_TABS, JSON.stringify(state.openTabs.slice(0, 20)));
+      if (state.activeTabKey) {
+        localStorage.setItem(STORAGE_ACTIVE_TAB, state.activeTabKey);
+      } else {
+        localStorage.removeItem(STORAGE_ACTIVE_TAB);
+      }
+    } catch {}
+  }
+
+  function isGenericConvoTitle(t) {
+    const s = String(t || '').trim();
+    return !s || s === '新对话' || s === 'Notion 对话' || s === '继续对话' || s === '继续 Notion 对话';
+  }
+
+  function upsertOpenTab(tabInfo, makeActive = true) {
+    if (!tabInfo || !tabInfo.key) return;
+    const { key, path, title, pinned = false } = tabInfo;
+
+    if (key !== DRAFT_TAB_KEY) {
+      const existing = state.openTabs.find((t) => t.key === key);
+      if (existing) {
+        if (title && (!isGenericConvoTitle(title) || isGenericConvoTitle(existing.title))) {
+          existing.title = title;
+        }
+        if (pinned) existing.pinned = true;
+      } else {
+        // 若当前激活的是空白新对话草稿标签，升级该草稿标签为刚落地的真实会话标签
+        const draftIdx = state.openTabs.findIndex((t) => t.key === DRAFT_TAB_KEY);
+        if (draftIdx !== -1 && state.activeTabKey === DRAFT_TAB_KEY) {
+          state.openTabs[draftIdx] = {
+            key,
+            path: path || key,
+            title: title || '新对话',
+            pinned: Boolean(pinned),
+          };
+        } else {
+          state.openTabs.push({
+            key,
+            path: path || key,
+            title: title || '会话',
+            pinned: Boolean(pinned),
+          });
+        }
+      }
+    } else {
+      const draft = state.openTabs.find((t) => t.key === DRAFT_TAB_KEY);
+      if (!draft) {
+        state.openTabs.push({ key: DRAFT_TAB_KEY, path: '/', title: '新对话', pinned: false });
+      }
+    }
+
+    if (makeActive) {
+      state.activeTabKey = key;
+    }
+    persistOpenTabs();
+  }
+
+  async function selectConversationIntoPane(item, targetMode = state.layout) {
+    if (!item || !isValidConvoPath(item.path)) return;
+    const mode = targetMode === 'float' ? 'float' : 'split';
+    upsertOpenTab(
+      {
+        key: item.path,
+        path: item.path,
+        title: item.title || '会话',
+        pinned: Boolean(item.pinned),
+      },
+      true
+    );
+    closeConvoPicker();
+    renderChromeDropdownMenu('');
+    if (state.layout !== mode) {
+      setNotionLayout(mode);
+    }
+    recordActiveNotionConvo(item.path, state.currentPage?.id || '');
+    await navigateToSavedNotionConvo(item.path);
+    syncChatChromeUI();
+    setTimeout(() => findMainComposerEditor()?.focus(), 80);
+  }
+
+  async function removeOpenTabByKey(tabKey) {
+    const idx = state.openTabs.findIndex((t) => t.key === tabKey);
+    if (idx === -1) return;
+    const wasActive = state.activeTabKey === tabKey;
+    state.openTabs.splice(idx, 1);
+
+    if (tabKey !== DRAFT_TAB_KEY) {
+      for (const [pid, cPath] of Object.entries(state.pageConvoMap)) {
+        if (cPath === tabKey) delete state.pageConvoMap[pid];
+      }
+      try {
+        localStorage.setItem(STORAGE_PAGE_CONVOS, JSON.stringify(state.pageConvoMap));
+      } catch {}
+
+      if (state.lastNotionConvoPath === tabKey) {
+        const fallbackSaved = [...state.openTabs].reverse().find((t) => isValidConvoPath(t.path));
+        state.lastNotionConvoPath = fallbackSaved ? fallbackSaved.path : '';
+        try {
+          if (state.lastNotionConvoPath) {
+            localStorage.setItem(STORAGE_LAST_NOTION_CONVO, state.lastNotionConvoPath);
+          } else {
+            localStorage.removeItem(STORAGE_LAST_NOTION_CONVO);
+          }
+        } catch {}
+      }
+    }
+
+    if (wasActive) {
+      if (state.openTabs.length > 0) {
+        const nextTab = state.openTabs[Math.min(idx, state.openTabs.length - 1)];
+        state.activeTabKey = nextTab.key;
+        persistOpenTabs();
+        if (nextTab.key === DRAFT_TAB_KEY) {
+          await startNewNotionConversation(state.layout, { keepExistingDraft: true });
+        } else {
+          await selectConversationIntoPane(nextTab, state.layout);
+        }
+        return;
+      }
+      persistOpenTabs();
+      await startNewNotionConversation(state.layout, { clearCurrentBinding: true });
+      return;
+    }
+
+    persistOpenTabs();
+    syncChatChromeUI();
+  }
+
+  function closeConvoPicker() {
+    state.convoPickerOpen = false;
+    const chrome = document.getElementById(CHROME_ID);
+    chrome?.querySelector('[data-role="convo-picker"]')?.classList.remove('is-open');
+  }
+
+  function collectDomFallbackConversations() {
+    const out = [];
+    const seen = new Set();
+    for (const a of document.querySelectorAll('a[href^="/c/"]')) {
+      const href = a.getAttribute('href') || '';
+      if (!isValidConvoPath(href) || seen.has(href)) continue;
+      seen.add(href);
+      const title = (a.innerText || a.textContent || '').trim().split(/\r?\n/)[0]?.trim();
+      if (!title) continue;
+      out.push({
+        id: href.slice(3),
+        path: href,
+        title,
+        projectName: '',
+        pinned: false,
+      });
+    }
+    return out;
+  }
+
+  async function refreshConvoCatalog() {
+    try {
+      const resp = await fetch(`${STAGE_BASE}/api/conversations?limit=80`, { cache: 'no-store' });
+      const data = await resp.json();
+      if (data && data.ok) {
+        const pinned = Array.isArray(data.pinned) ? data.pinned : [];
+        const recent = Array.isArray(data.recent) ? data.recent : [];
+        const knownPaths = new Set([...pinned, ...recent].map((c) => c.path));
+        for (const domItem of collectDomFallbackConversations()) {
+          if (!knownPaths.has(domItem.path)) {
+            recent.unshift(domItem);
+            knownPaths.add(domItem.path);
+          }
+        }
+        state.convoCatalog = { pinned, recent, loadedAt: Date.now() };
+        if (state.convoPickerOpen) renderConvoPickerList();
+        return;
+      }
+    } catch {}
+    state.convoCatalog = { pinned: [], recent: collectDomFallbackConversations(), loadedAt: Date.now() };
+    if (state.convoPickerOpen) renderConvoPickerList();
+  }
+
+  function renderConvoPickerList() {
+    const chrome = document.getElementById(CHROME_ID);
+    const listEl = chrome?.querySelector('[data-role="picker-list"]');
+    if (!listEl) return;
+
+    const kw = String(state.convoPickerFilter || '').trim().toLowerCase();
+    const openKeySet = new Set(state.openTabs.map((t) => t.key));
+    const matchFn = (item) => {
+      if (!kw) return true;
+      return `${item.title || ''}\n${item.projectName || ''}`.toLowerCase().includes(kw);
+    };
+
+    const pinnedList = (state.convoCatalog.pinned || []).filter(matchFn);
+    const recentList = (state.convoCatalog.recent || []).filter(matchFn);
+
+    listEl.innerHTML = '';
+
+    // 首行固定：新建空白对话（专属 Notion 项目）
+    const newRow = document.createElement('button');
+    newRow.type = 'button';
+    newRow.className = 'agy-notion-picker-row is-new';
+    newRow.innerHTML = `<span class="agy-notion-picker-title">＋ 新建空白对话（Notion 项目）</span>`;
+    newRow.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeConvoPicker();
+      void startNewNotionConversation(state.layout === 'float' ? 'float' : 'split');
+    });
+    listEl.appendChild(newRow);
+
+    // Float 模式下额外展示已打开的标签页便于切换
+    if (state.layout === 'float' && state.openTabs.length > 1 && !kw) {
+      const sec = document.createElement('div');
+      sec.className = 'agy-notion-picker-section';
+      sec.textContent = '已添加的标签页';
+      listEl.appendChild(sec);
+      for (const tab of state.openTabs) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'agy-notion-picker-row';
+        const isCur = tab.key === state.activeTabKey;
+        row.innerHTML = `
+          <span class="agy-notion-picker-title">${isCur ? '● ' : ''}${escapeHtml(tab.title)}</span>
+          <span class="agy-notion-picker-meta">${isCur ? '当前' : '切换'}</span>
+        `;
+        row.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeConvoPicker();
+          if (tab.key === DRAFT_TAB_KEY) {
+            void startNewNotionConversation('float', { keepExistingDraft: true });
+          } else {
+            void selectConversationIntoPane(tab, 'float');
+          }
+        });
+        listEl.appendChild(row);
+      }
+    }
+
+    const appendGroup = (headerText, arr, isPinGroup = false) => {
+      if (!arr.length) return;
+      const sec = document.createElement('div');
+      sec.className = 'agy-notion-picker-section';
+      sec.textContent = headerText;
+      listEl.appendChild(sec);
+
+      for (const item of arr) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'agy-notion-picker-row';
+        const added = openKeySet.has(item.path);
+        const badgeText = added ? '已添加 ✓' : item.projectName || '';
+        row.innerHTML = `
+          <span class="agy-notion-picker-title">${isPinGroup ? '📌 ' : ''}${escapeHtml(item.title)}</span>
+          ${badgeText ? `<span class="agy-notion-picker-meta">${escapeHtml(badgeText)}</span>` : ''}
+        `;
+        row.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void selectConversationIntoPane(item, state.layout === 'float' ? 'float' : 'split');
+        });
+        listEl.appendChild(row);
+      }
+    };
+
+    appendGroup('置顶对话', pinnedList, true);
+    appendGroup('最近会话', recentList, false);
+
+    if (!pinnedList.length && !recentList.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:14px 10px;text-align:center;font-size:12px;color:#94a3b8;';
+      empty.textContent = state.convoCatalog.loadedAt ? '未找到匹配的会话' : '正在加载左侧会话列表...';
+      listEl.appendChild(empty);
+    }
+  }
+
+  function toggleConvoPicker(anchorLeftPx = 10) {
+    const chrome = document.getElementById(CHROME_ID);
+    const picker = chrome?.querySelector('[data-role="convo-picker"]');
+    const searchInput = chrome?.querySelector('[data-role="picker-search"]');
+    if (!picker) return;
+
+    if (state.convoPickerOpen) {
+      closeConvoPicker();
+      return;
+    }
+
+    renderChromeDropdownMenu('');
+    state.convoPickerOpen = true;
+    state.convoPickerFilter = '';
+    if (searchInput) searchInput.value = '';
+    picker.style.left = `${Math.max(8, Math.min(anchorLeftPx, 120))}px`;
+    picker.classList.add('is-open');
+    renderConvoPickerList();
+    void refreshConvoCatalog();
+    setTimeout(() => searchInput?.focus(), 30);
+  }
+
   function renderChromeDropdownMenu(mode) {
     const chrome = document.getElementById(CHROME_ID);
     const menu = chrome?.querySelector('[data-role="chrome-menu"]');
@@ -1873,6 +2466,7 @@
       return;
     }
 
+    closeConvoPicker();
     state.chromeMenuMode = mode;
     menu.classList.remove('align-left', 'align-right');
     menu.classList.add(mode === 'title' ? 'align-left' : 'align-right');
@@ -1880,13 +2474,13 @@
     const items =
       mode === 'title'
         ? [
-            { label: '＋ 新建 Notion 对话', action: () => void startNewNotionConversation('float') },
+            { label: '＋ 添加左侧会话 / 新建对话', action: () => toggleConvoPicker(12) },
             { label: '◫ 停靠到右侧分栏', action: () => setNotionLayout('split') },
             { label: '↻ 刷新左侧当前笔记', action: () => sendRefreshToIframe() },
           ]
         : [
             { label: '◫ 停靠到右侧分栏', action: () => setNotionLayout('split') },
-            { label: '＋ 新建 Notion 对话', action: () => void startNewNotionConversation('float') },
+            { label: '＋ 添加左侧会话 / 新建对话', action: () => toggleConvoPicker(12) },
             { label: '↺ 重置位置与默认大小', action: () => resetFloatWindowGeometry() },
             {
               label: '－ 最小化收起',
@@ -1921,10 +2515,12 @@
     const floatTitleBtn = chrome.querySelector('[data-role="float-title-btn"]');
     const floatGripBtn = floatBar?.querySelector('[data-role="grip-trigger"]');
 
-    const splitTabClose = chrome.querySelector('[data-role="split-tab-close"]');
+    const splitTabStrip = chrome.querySelector('[data-role="split-tab-strip"]');
     const splitNewBtn = chrome.querySelector('[data-role="split-new-btn"]');
     const splitToFloatBtn = chrome.querySelector('[data-role="split-to-float-btn"]');
     const splitCollapseBtn = chrome.querySelector('[data-role="split-collapse-btn"]');
+    const pickerEl = chrome.querySelector('[data-role="convo-picker"]');
+    const pickerSearch = chrome.querySelector('[data-role="picker-search"]');
 
     const quoteInsertBtn = chrome.querySelector('[data-role="chrome-quote-insert"]');
     const quoteClearBtn = chrome.querySelector('[data-role="chrome-quote-clear"]');
@@ -1936,6 +2532,55 @@
       onClickWithoutDrag: () => {
         renderChromeDropdownMenu('grip');
       },
+    });
+
+    splitTabStrip?.addEventListener(
+      'wheel',
+      (e) => {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          e.preventDefault();
+          splitTabStrip.scrollLeft += e.deltaY;
+        }
+      },
+      { passive: false }
+    );
+
+    splitTabStrip?.addEventListener('click', (e) => {
+      const closeBtn = e.target.closest('[data-close-tab]');
+      if (closeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = closeBtn.getAttribute('data-close-tab');
+        if (key) void removeOpenTabByKey(key);
+        return;
+      }
+      const tabEl = e.target.closest('[data-tab-key]');
+      if (tabEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = tabEl.getAttribute('data-tab-key');
+        const hit = state.openTabs.find((t) => t.key === key);
+        if (!hit) return;
+        if (hit.key === DRAFT_TAB_KEY) {
+          state.activeTabKey = DRAFT_TAB_KEY;
+          persistOpenTabs();
+          void startNewNotionConversation('split', { keepExistingDraft: true });
+        } else {
+          void selectConversationIntoPane(hit, 'split');
+        }
+      }
+    });
+
+    pickerEl?.addEventListener('pointerdown', (e) => e.stopPropagation());
+    pickerSearch?.addEventListener('input', () => {
+      state.convoPickerFilter = pickerSearch.value || '';
+      renderConvoPickerList();
+    });
+    pickerSearch?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeConvoPicker();
+      }
     });
 
     floatMinBtn?.addEventListener('click', (e) => {
@@ -1950,19 +2595,16 @@
     floatTitleBtn?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      renderChromeDropdownMenu('title');
-    });
-
-    splitTabClose?.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      void startNewNotionConversation('split', { clearCurrentBinding: true });
+      toggleConvoPicker(12);
     });
 
     splitNewBtn?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      void startNewNotionConversation('split');
+      const chromeRect = chrome.getBoundingClientRect();
+      const btnRect = splitNewBtn.getBoundingClientRect();
+      const relLeft = Math.max(8, Math.round(btnRect.left - chromeRect.left - 40));
+      toggleConvoPicker(relLeft);
     });
 
     splitToFloatBtn?.addEventListener('click', (e) => {
@@ -2004,13 +2646,52 @@
     const chrome = document.getElementById(CHROME_ID);
     if (!chrome) return;
 
+    const curPath = window.location.pathname || '';
     const title = extractLiveConversationTitle();
     state.liveConvoTitle = title;
 
+    if (state.active && state.notionConvoTrackingArmed && isValidConvoPath(curPath)) {
+      upsertOpenTab({ key: curPath, path: curPath, title }, true);
+    } else if (state.active && isBlankNewConversationView()) {
+      if (state.openTabs.length === 0 || state.activeTabKey === DRAFT_TAB_KEY || !state.activeTabKey) {
+        upsertOpenTab({ key: DRAFT_TAB_KEY, path: '/', title: '新对话' }, true);
+      }
+    } else if (state.openTabs.length === 0) {
+      upsertOpenTab({ key: DRAFT_TAB_KEY, path: '/', title: '新对话' }, true);
+    }
+
+    if (!state.activeTabKey && state.openTabs.length > 0) {
+      state.activeTabKey = state.openTabs[state.openTabs.length - 1].key;
+    }
+
+    const activeTab = state.openTabs.find((t) => t.key === state.activeTabKey);
+    const displayTitle = activeTab?.title && !isGenericConvoTitle(activeTab.title) ? activeTab.title : title;
+
     const floatTitleEl = chrome.querySelector('[data-role="float-title-text"]');
-    const splitTitleEl = chrome.querySelector('[data-role="split-title-text"]');
-    if (floatTitleEl) floatTitleEl.textContent = title;
-    if (splitTitleEl) splitTitleEl.textContent = title;
+    if (floatTitleEl) floatTitleEl.textContent = displayTitle;
+
+    const splitTabStrip = chrome.querySelector('[data-role="split-tab-strip"]');
+    if (splitTabStrip) {
+      const sig = JSON.stringify({
+        active: state.activeTabKey,
+        tabs: state.openTabs.map((t) => [t.key, t.title]),
+      });
+      if (sig !== lastRenderedTabsSig) {
+        lastRenderedTabsSig = sig;
+        splitTabStrip.innerHTML = state.openTabs
+          .map((t) => {
+            const isAct = t.key === state.activeTabKey;
+            return `
+              <div class="agy-notion-split-tab ${isAct ? 'is-active' : ''}" data-tab-key="${escapeHtml(t.key)}" title="${escapeHtml(t.title)}">
+                ${BUBBLE_ICON_SVG}
+                <span class="agy-notion-title-ellipsis">${escapeHtml(t.title)}</span>
+                <button type="button" class="agy-notion-tab-close" data-close-tab="${escapeHtml(t.key)}" title="从右侧栏移除此会话标签">×</button>
+              </div>
+            `;
+          })
+          .join('');
+      }
+    }
 
     const quoteBar = chrome.querySelector('[data-role="chrome-quote-bar"]');
     const quoteText = chrome.querySelector('[data-role="chrome-quote-text"]');
@@ -2265,6 +2946,7 @@
     closeQuickMenu();
     closeModelMenu();
     closeDockGripMenu();
+    closeConvoPicker();
     renderChromeDropdownMenu('');
     hideGripTooltip();
   }
@@ -2695,6 +3377,12 @@
   }
 
   function getPreferredNotionConvoPath(pageId = state.currentPage?.id || '') {
+    if (state.activeTabKey === DRAFT_TAB_KEY) {
+      return '';
+    }
+    if (isValidConvoPath(state.activeTabKey)) {
+      return state.activeTabKey;
+    }
     if (pageId && isValidConvoPath(state.pageConvoMap[pageId])) {
       return state.pageConvoMap[pageId];
     }
@@ -2758,7 +3446,7 @@
   }
 
   async function startNewNotionConversation(targetMode = state.layout, opts = {}) {
-    const { clearCurrentBinding = false } = opts || {};
+    const { clearCurrentBinding = false, keepExistingDraft = false } = opts || {};
     const mode = targetMode === 'split' ? 'split' : 'float';
     if (clearCurrentBinding) {
       state.lastNotionConvoPath = '';
@@ -2772,11 +3460,14 @@
         } catch {}
       }
     }
+    upsertOpenTab({ key: DRAFT_TAB_KEY, path: '/', title: '新对话', pinned: false }, true);
     state.lastSubmittedPrompt = '';
     state.hasActiveNotionChat = true;
     state.notionConvoTrackingArmed = true;
     setNotionLayout(mode);
-    const ed = await ensureFreshNewConversationEditor(3000, { forceReset: true });
+    const ed = await ensureFreshNewConversationEditor(3000, {
+      forceReset: !keepExistingDraft || !isBlankNewConversationView(),
+    });
     syncChatChromeUI();
     ed?.focus();
   }
@@ -3186,6 +3877,200 @@
     }
   }
 
+  // --- 智能按需页面上下文记忆与右侧原生输入框无损注入 ---
+  function markPageContextInjected(convoPath, pageId) {
+    if (!isValidConvoPath(convoPath) || !pageId) return;
+    state.convoInjectedPageMap[convoPath] = pageId;
+    const keys = Object.keys(state.convoInjectedPageMap);
+    if (keys.length > 80) {
+      delete state.convoInjectedPageMap[keys[0]];
+    }
+    try {
+      localStorage.setItem(STORAGE_INJECTED_PAGES, JSON.stringify(state.convoInjectedPageMap));
+    } catch {}
+  }
+
+  function shouldInjectCurrentPageContext(convoKey) {
+    if (!state.active) return false;
+    if (state.selectedQuote) return true;
+    if (state.currentView === 'page' && state.currentPage?.id) {
+      if (!convoKey || convoKey === DRAFT_TAB_KEY) return true;
+      return state.convoInjectedPageMap[convoKey] !== state.currentPage.id;
+    }
+    return false;
+  }
+
+  function buildCurrentNotionContextBlock() {
+    if (!state.currentPage && !state.selectedQuote) return '';
+    const ctxPayload = {};
+    if (state.currentPage) {
+      ctxPayload.title = state.currentPage.title;
+      ctxPayload.pageId = state.currentPage.id;
+      ctxPayload.url = state.currentPage.url;
+      ctxPayload.path = state.currentPage.path || '';
+    }
+    if (state.selectedQuote) {
+      ctxPayload.selectedQuote = state.selectedQuote;
+    }
+    return `[Notion Page Context: ${JSON.stringify(ctxPayload)}]`;
+  }
+
+  function isNativeAutocompletePopupOpen() {
+    const selectors =
+      '[role="listbox"], [data-lexical-typeahead-menu], #typeahead-menu, .lexical-typeahead-menu, [data-testid*="mention-menu"], [data-testid*="slash-menu"], [data-testid*="command-menu"]';
+    for (const el of document.querySelectorAll(selectors)) {
+      if (el.closest(`#${STAGE_ID}`) || el.closest(`#${CHROME_ID}`)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return true;
+    }
+    return false;
+  }
+
+  async function appendSuffixToEditorEnd(editor, suffix) {
+    editor.focus();
+    try {
+      if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
+        const nextVal = `${editor.value || ''}${suffix}`;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        if (setter) setter.call(editor, nextVal);
+        else editor.value = nextVal;
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      }
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } catch {}
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    const ipcInsert =
+      window.__agyNotionSidebarIPC?.insertText || window.__agyCowartSidebarIPC?.insertText;
+    if (typeof ipcInsert === 'function') {
+      try {
+        const res = await ipcInsert(suffix);
+        if (res && res.ok) return true;
+      } catch {}
+    }
+
+    try {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', suffix);
+      const pasteEvt = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
+      editor.dispatchEvent(pasteEvt);
+      if ((editor.textContent || '').includes('[Notion Page Context:')) return true;
+    } catch {}
+
+    try {
+      document.execCommand('insertText', false, suffix);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function watchAndBindNewConversation(submittedPageId) {
+    void (async () => {
+      const deadline = Date.now() + 5500;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 120));
+        if (!state.notionConvoTrackingArmed) break;
+        if (isValidConvoPath(window.location.pathname)) {
+          const landedPath = window.location.pathname;
+          recordActiveNotionConvo(landedPath, submittedPageId);
+          if (submittedPageId) {
+            markPageContextInjected(landedPath, submittedPageId);
+          }
+          upsertOpenTab({ key: landedPath, path: landedPath, title: extractLiveConversationTitle() }, true);
+          sanitizeNotionUserMessageBubbles();
+          syncChatChromeUI();
+          updateDockUI();
+          break;
+        }
+      }
+    })();
+  }
+
+  async function interceptAndSubmitNativeComposer(editor) {
+    if (state.injectingNativeSend || !editor) return;
+    const rawText = (editor.innerText || editor.textContent || editor.value || '').trim();
+    if (!rawText) return;
+
+    const curPath = window.location.pathname || '';
+    const convoKey = isValidConvoPath(curPath) ? curPath : DRAFT_TAB_KEY;
+    const pageIdAtSend = state.currentView === 'page' ? state.currentPage?.id || '' : '';
+    const ctxBlock = buildCurrentNotionContextBlock();
+
+    state.injectingNativeSend = true;
+    state.lastSubmittedPrompt = rawText.replace(/\[Notion Page Context:[\s\S]*?\]/g, '').trim();
+    state.hasActiveNotionChat = true;
+    state.notionConvoTrackingArmed = true;
+
+    try {
+      if (ctxBlock && !rawText.includes('[Notion Page Context:')) {
+        document.body.setAttribute('data-agy-notion-submitting', 'true');
+        await appendSuffixToEditorEnd(editor, `\n\n${ctxBlock}`);
+        await new Promise((r) => setTimeout(r, 70));
+      }
+
+      if (isValidConvoPath(curPath) && pageIdAtSend) {
+        markPageContextInjected(curPath, pageIdAtSend);
+      }
+      if (state.selectedQuote) {
+        state.selectedQuote = '';
+        updateDockUI();
+        syncChatChromeUI();
+      }
+
+      state.bypassNativeIntercept = true;
+      try {
+        const sendBtn = findComposerSendButton(editor);
+        if (sendBtn && !sendBtn.disabled) {
+          sendBtn.click();
+        } else {
+          editor.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+      } finally {
+        state.bypassNativeIntercept = false;
+      }
+
+      if (convoKey === DRAFT_TAB_KEY) {
+        watchAndBindNewConversation(pageIdAtSend);
+      }
+
+      setTimeout(() => {
+        document.body.removeAttribute('data-agy-notion-submitting');
+        sanitizeNotionUserMessageBubbles();
+        syncChatChromeUI();
+      }, 85);
+      setTimeout(() => {
+        sanitizeNotionUserMessageBubbles();
+        syncChatChromeUI();
+      }, 420);
+    } finally {
+      state.injectingNativeSend = false;
+      setTimeout(() => document.body.removeAttribute('data-agy-notion-submitting'), 260);
+    }
+  }
+
   async function submitToAntigravityChat(rawPrompt, options = {}) {
     const { forceNewConversation = true, targetLayout = 'float' } = options || {};
     const cleanPrompt = String(rawPrompt || '').trim();
@@ -3194,10 +4079,13 @@
 
     try {
       if (!state.active) await openNotionView();
-      const submittedPageId = state.currentPage?.id || '';
+      const submittedPageId = state.currentView === 'page' ? state.currentPage?.id || '' : '';
       state.lastSubmittedPrompt = cleanPrompt;
       state.hasActiveNotionChat = true;
       state.notionConvoTrackingArmed = true;
+      if (forceNewConversation) {
+        upsertOpenTab({ key: DRAFT_TAB_KEY, path: '/', title: '新对话', pinned: false }, true);
+      }
       setNotionLayout(targetLayout === 'split' ? 'split' : 'float');
       syncChatChromeUI();
 
@@ -3233,19 +4121,12 @@
         }
       }
 
+      const curPath = window.location.pathname || '';
+      const convoKey = !forceNewConversation && isValidConvoPath(curPath) ? curPath : DRAFT_TAB_KEY;
       const parts = [cleanPrompt];
-      if (state.currentPage || state.selectedQuote) {
-        const ctxPayload = {};
-        if (state.currentPage) {
-          ctxPayload.title = state.currentPage.title;
-          ctxPayload.pageId = state.currentPage.id;
-          ctxPayload.url = state.currentPage.url;
-          ctxPayload.path = state.currentPage.path || '';
-        }
-        if (state.selectedQuote) {
-          ctxPayload.selectedQuote = state.selectedQuote;
-        }
-        parts.push(`[Notion Page Context: ${JSON.stringify(ctxPayload)}]`);
+      if (shouldInjectCurrentPageContext(convoKey)) {
+        const ctxBlock = buildCurrentNotionContextBlock();
+        if (ctxBlock) parts.push(ctxBlock);
       }
       const finalMessage = parts.join('\n\n');
 
@@ -3258,36 +4139,32 @@
 
       await new Promise((r) => setTimeout(r, 110));
 
-      const sendBtn = findComposerSendButton(editor);
-      if (sendBtn && !sendBtn.disabled) {
-        sendBtn.click();
-      } else {
-        editor.dispatchEvent(
-          new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            which: 13,
-            bubbles: true,
-            cancelable: true,
-          })
-        );
-      }
-      // 监听新会话创建后的 /c/<id> 路由落地并立即绑定到当前笔记与 Notion 会话记忆
-      void (async () => {
-        const deadline = Date.now() + 5500;
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 120));
-          if (!state.notionConvoTrackingArmed) break;
-          if (isValidConvoPath(window.location.pathname)) {
-            recordActiveNotionConvo(window.location.pathname, submittedPageId);
-            sanitizeNotionUserMessageBubbles();
-            syncChatChromeUI();
-            updateDockUI();
-            break;
-          }
+      state.bypassNativeIntercept = true;
+      try {
+        const sendBtn = findComposerSendButton(editor);
+        if (sendBtn && !sendBtn.disabled) {
+          sendBtn.click();
+        } else {
+          editor.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
         }
-      })();
+      } finally {
+        state.bypassNativeIntercept = false;
+      }
+
+      if (convoKey !== DRAFT_TAB_KEY && submittedPageId) {
+        markPageContextInjected(convoKey, submittedPageId);
+      } else {
+        watchAndBindNewConversation(submittedPageId);
+      }
 
       setTimeout(() => {
         document.body.removeAttribute('data-agy-notion-submitting');
@@ -3332,51 +4209,231 @@
     }
   }
 
-  // --- 无感剥离消息气泡中的 [Notion Page Context: {...}] 与引用引言块（保留底层发送上下文，净化对话 UI） ---
-  const NOTION_CTX_BLOCK_RE = /(?:\r?\n)*\[Notion Page Context:\s*\{[\s\S]*?\}\]\s*/g;
-  const NOTION_QUOTE_BLOCK_RE = /(?:\r?\n)*我当前选中的笔记片段：\r?\n(?:>[^\r\n]*(?:\r?\n|$))+/g;
+  // --- 将消息气泡中的 [Notion Page Context: {...}]（含被自动拆分为 <a> 链接的节点）收起为可展开折叠卡片 ---
+  const NOTION_QUOTE_BLOCK_RE = /(?:\r?\n)*我当前选中的笔记片段：\r?\n((?:>[^\r\n]*(?:\r?\n|$))+)/;
   const NOTION_QUOTE_LINE_RE = /^我当前选中的笔记片段：\s*$/;
+
+  function extractCleanNodeText(rootEl) {
+    let out = '';
+    const walk = (n) => {
+      if (!n) return;
+      if (n.nodeType === Node.TEXT_NODE) {
+        out += n.nodeValue || '';
+        return;
+      }
+      if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n;
+        if (el.classList?.contains('agy-notion-ctx-fold')) return;
+        const tag = (el.tagName || '').toLowerCase();
+        if (el.classList?.contains('google-symbols') || el.classList?.contains('material-icons') || tag === 'svg') {
+          return;
+        }
+        if (tag === 'a' && el.getAttribute('href')) {
+          out += el.getAttribute('href');
+          return;
+        }
+        for (const ch of el.childNodes) walk(ch);
+      }
+    };
+    walk(rootEl);
+    return out;
+  }
+
+  function parseNotionContextMetadata(cleanTxt) {
+    let meta = null;
+    const markerIdx = cleanTxt.indexOf('[Notion Page Context:');
+    if (markerIdx !== -1) {
+      const braceStart = cleanTxt.indexOf('{', markerIdx);
+      const closeBracket = cleanTxt.indexOf('}]', braceStart);
+      if (braceStart !== -1 && closeBracket !== -1) {
+        const jsonStr = cleanTxt.slice(braceStart, closeBracket + 1);
+        try {
+          meta = JSON.parse(jsonStr);
+          if (meta && typeof meta.url === 'string') {
+            meta.url = meta.url.replace(/[\u2197\s]+$/g, '');
+          }
+        } catch {
+          const getField = (k) => {
+            const m = jsonStr.match(new RegExp(`"${k}"\\s*:\\s*"([^"]*)"`));
+            return m ? m[1] : '';
+          };
+          meta = {
+            title: getField('title') || 'Notion 页面',
+            pageId: getField('pageId'),
+            url: getField('url'),
+            path: getField('path'),
+            selectedQuote: getField('selectedQuote'),
+          };
+        }
+      }
+    }
+
+    const legacyQuoteM = cleanTxt.match(NOTION_QUOTE_BLOCK_RE);
+    if (legacyQuoteM) {
+      const qTxt = legacyQuoteM[1]
+        .split(/\r?\n/)
+        .map((l) => l.replace(/^>\s?/, ''))
+        .join('\n')
+        .trim();
+      if (!meta) meta = { title: '当前笔记引用' };
+      if (qTxt && !meta.selectedQuote) meta.selectedQuote = qTxt;
+    }
+    return meta;
+  }
+
+  function hideContextNodesInContainer(containerEl) {
+    let inCtxSpan = false;
+    let mutated = false;
+
+    for (const node of [...containerEl.childNodes]) {
+      if (!inCtxSpan) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          let val = node.nodeValue || '';
+          const nextQuote = val.replace(/(?:\r?\n)*我当前选中的笔记片段：\r?\n(?:>[^\r\n]*(?:\r?\n|$))+/g, '');
+          if (nextQuote !== val) {
+            val = nextQuote;
+            mutated = true;
+          }
+          const startMatch = val.match(/(?:\r?\n)*\[Notion Page Context:/);
+          if (startMatch && startMatch.index !== undefined) {
+            const prefix = val.slice(0, startMatch.index).replace(/\s+$/, '');
+            const rest = val.slice(startMatch.index);
+            const endPos = rest.indexOf('}]');
+            if (endPos !== -1) {
+              const suffix = rest.slice(endPos + 2).replace(/^\s+/, '');
+              node.nodeValue = suffix ? `${prefix}\n${suffix}` : prefix;
+            } else {
+              node.nodeValue = prefix;
+              inCtxSpan = true;
+            }
+            mutated = true;
+          } else if (mutated) {
+            node.nodeValue = val.replace(/\s+$/, '');
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const elTxt = node.textContent || '';
+          if (elTxt.includes('[Notion Page Context:') || elTxt.includes('我当前选中的笔记片段：')) {
+            if (hideContextNodesInContainer(node)) {
+              mutated = true;
+            }
+          }
+        }
+      } else {
+        // 处于跨节点 [Notion Page Context: ... <a>url</a> ... }] 区间内，隐藏中间节点但不从 DOM 删除
+        mutated = true;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          node.style.display = 'none';
+          if ((node.textContent || '').includes('}]')) {
+            inCtxSpan = false;
+          }
+        } else if (node.nodeType === Node.TEXT_NODE) {
+          const val = node.nodeValue || '';
+          const endPos = val.indexOf('}]');
+          if (endPos !== -1) {
+            node.nodeValue = val.slice(endPos + 2).replace(/^\r?\n/, '');
+            inCtxSpan = false;
+          } else {
+            node.nodeValue = '';
+          }
+        }
+      }
+    }
+    return mutated;
+  }
+
+  function mountCollapsibleContextCard(contentEl, meta) {
+    if (!meta) return;
+    const bubbleEl = contentEl.closest('[data-testid="user-message-bubble"]') || contentEl.parentElement;
+    if (!bubbleEl || bubbleEl.querySelector('.agy-notion-ctx-fold')) return;
+
+    const fold = document.createElement('details');
+    fold.className = 'agy-notion-ctx-fold no-focus-agent-input';
+    fold.setAttribute('data-code', 'true');
+
+    const pageTitle = meta.title || 'Notion 页面';
+    const summaryLabel = meta.selectedQuote
+      ? `引用页面：${pageTitle}（含选中片段）`
+      : `引用页面：${pageTitle}`;
+
+    const rowsHtml = [];
+    rowsHtml.push(`
+      <div class="agy-notion-ctx-row">
+        <span class="agy-notion-ctx-label">页面</span>
+        <a class="agy-notion-ctx-link" data-role="ctx-open-page">${escapeHtml(pageTitle)}</a>
+      </div>
+    `);
+    if (meta.path) {
+      rowsHtml.push(`
+        <div class="agy-notion-ctx-row">
+          <span class="agy-notion-ctx-label">路径</span>
+          <span>${escapeHtml(meta.path)}</span>
+        </div>
+      `);
+    }
+    if (meta.pageId) {
+      rowsHtml.push(`
+        <div class="agy-notion-ctx-row">
+          <span class="agy-notion-ctx-label">ID</span>
+          <span style="font-family:Consolas,monospace;font-size:11px;">${escapeHtml(meta.pageId)}</span>
+        </div>
+      `);
+    }
+    if (meta.selectedQuote) {
+      rowsHtml.push(`<div class="agy-notion-ctx-quote">${escapeHtml(meta.selectedQuote)}</div>`);
+    }
+
+    fold.innerHTML = `
+      <summary class="agy-notion-ctx-summary" title="点击展开或收起引用的 Notion 页面详情">
+        <span class="agy-notion-ctx-arrow">▸</span>
+        <span style="display:inline-flex;align-items:center;opacity:0.8;">${NOTION_NAV_SVG.replace(/16/g, '13')}</span>
+        <span class="agy-notion-ctx-summary-title">${escapeHtml(summaryLabel)}</span>
+      </summary>
+      <div class="agy-notion-ctx-body">
+        ${rowsHtml.join('')}
+      </div>
+    `;
+
+    fold.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    fold.querySelector('[data-role="ctx-open-page"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const iframe = document.getElementById(STAGE_ID)?.querySelector('[data-role="iframe"]');
+      if (state.active && meta.pageId && iframe?.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'AGY_NOTION_OPEN_PAGE', pageId: meta.pageId }, '*');
+      } else if (meta.url) {
+        openExternalSafely(meta.url);
+      }
+    });
+
+    bubbleEl.appendChild(fold);
+  }
 
   function sanitizeNotionUserMessageBubbles() {
     const bubbles = document.querySelectorAll('[data-testid="user-message-content"]');
     for (const contentEl of bubbles) {
-      const fullTxt = contentEl.textContent || '';
-      const hasCtx = fullTxt.includes('[Notion Page Context:') || fullTxt.includes('我当前选中的笔记片段：');
-      if (!hasCtx) {
-        if (
-          contentEl.dataset.agyNotionCleaned === '1' &&
-          contentEl.scrollHeight <= contentEl.clientHeight + 4 &&
-          contentEl.style.maskImage
-        ) {
+      if (contentEl.dataset.agyNotionCleaned === '1') {
+        if (contentEl.scrollHeight <= contentEl.clientHeight + 4 && contentEl.style.maskImage) {
           contentEl.style.maskImage = 'none';
           contentEl.style.webkitMaskImage = 'none';
         }
         continue;
       }
 
-      let mutated = false;
-      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
-      const textNodes = [];
-      let cur = walker.nextNode();
-      while (cur) {
-        textNodes.push(cur);
-        cur = walker.nextNode();
+      const rawFullTxt = contentEl.textContent || '';
+      if (!rawFullTxt.includes('[Notion Page Context:') && !rawFullTxt.includes('我当前选中的笔记片段：')) {
+        continue;
       }
 
-      for (const tn of textNodes) {
-        const val = tn.nodeValue || '';
-        if (!val.includes('[Notion Page Context:') && !val.includes('我当前选中的笔记片段：')) continue;
-        const cleaned = val
-          .replace(NOTION_QUOTE_BLOCK_RE, '')
-          .replace(NOTION_CTX_BLOCK_RE, '')
-          .replace(/\s+$/, '');
-        if (cleaned !== val) {
-          tn.nodeValue = cleaned;
-          mutated = true;
-        }
-      }
+      const cleanTxt = extractCleanNodeText(contentEl);
+      const meta = parseNotionContextMetadata(cleanTxt);
+      const quotable = contentEl.querySelector('[data-quotable="true"]') || contentEl;
+      let mutated = hideContextNodesInContainer(quotable);
 
-      const paragraphs = contentEl.querySelectorAll('p');
+      // 兼容列表模式下清空后的 <p> 段落隐藏（只设 display:none，不删除 React 节点）
+      const paragraphs = quotable.querySelectorAll('p');
       let hideQuoteLines = false;
       for (const p of paragraphs) {
         const pTxt = (p.textContent || '').trim();
@@ -3410,11 +4467,13 @@
 
       if (mutated) {
         contentEl.dataset.agyNotionCleaned = '1';
+        mountCollapsibleContextCard(contentEl, meta);
         requestAnimationFrame(() => {
           if (contentEl.scrollHeight <= contentEl.clientHeight + 4) {
             contentEl.style.maskImage = 'none';
             contentEl.style.webkitMaskImage = 'none';
             contentEl.style.cursor = 'auto';
+            contentEl.removeAttribute('tabindex');
           }
         });
       }
@@ -3465,6 +4524,84 @@
     };
     document.addEventListener('click', auxToggleClickHandler, true);
 
+    // 监听右侧分栏 / 悬浮小窗内原生输入框提交，按需智能附带当前左侧打开的 Notion 页面信息
+    nativeKeydownHandler = (e) => {
+      if (!state.active || state.bypassNativeIntercept || state.injectingNativeSend || state.submitting) return;
+      if (state.layout !== 'split' && state.layout !== 'float') return;
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(`#${STAGE_ID}`) || target.closest(`#${CHROME_ID}`)) return;
+      const editor = target.closest(
+        '.agy-notion-main-col [data-lexical-editor="true"], .agy-notion-main-col [contenteditable="true"][role="textbox"], .agy-notion-main-col textarea'
+      );
+      if (!editor) return;
+      if (isNativeAutocompletePopupOpen()) return;
+
+      const sendBtn = findComposerSendButton(editor);
+      if (!sendBtn || sendBtn.disabled) return;
+
+      const curPath = window.location.pathname || '';
+      const convoKey = isValidConvoPath(curPath) ? curPath : DRAFT_TAB_KEY;
+      const editorTxt = (editor.innerText || editor.textContent || editor.value || '').trim();
+      if (!editorTxt) return;
+
+      state.hasActiveNotionChat = true;
+      state.notionConvoTrackingArmed = true;
+
+      if (!shouldInjectCurrentPageContext(convoKey) || editorTxt.includes('[Notion Page Context:')) {
+        if (convoKey === DRAFT_TAB_KEY) {
+          watchAndBindNewConversation(state.currentView === 'page' ? state.currentPage?.id || '' : '');
+        }
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
+      void interceptAndSubmitNativeComposer(editor);
+    };
+    document.addEventListener('keydown', nativeKeydownHandler, true);
+
+    nativeSendClickHandler = (e) => {
+      if (!state.active || state.bypassNativeIntercept || state.injectingNativeSend || state.submitting) return;
+      if (state.layout !== 'split' && state.layout !== 'float') return;
+
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(`#${STAGE_ID}`) || target.closest(`#${CHROME_ID}`)) return;
+      const sendBtn = target.closest('.agy-notion-main-col [data-testid="send-button"], .agy-notion-main-col .agy-send-button');
+      if (!sendBtn || sendBtn.disabled) return;
+
+      const editor = findMainComposerEditor();
+      if (!editor) return;
+      const editorTxt = (editor.innerText || editor.textContent || editor.value || '').trim();
+      if (!editorTxt) return;
+
+      const curPath = window.location.pathname || '';
+      const convoKey = isValidConvoPath(curPath) ? curPath : DRAFT_TAB_KEY;
+      state.hasActiveNotionChat = true;
+      state.notionConvoTrackingArmed = true;
+
+      if (!shouldInjectCurrentPageContext(convoKey) || editorTxt.includes('[Notion Page Context:')) {
+        if (convoKey === DRAFT_TAB_KEY) {
+          watchAndBindNewConversation(state.currentView === 'page' ? state.currentPage?.id || '' : '');
+        }
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === 'function') {
+        e.stopImmediatePropagation();
+      }
+      void interceptAndSubmitNativeComposer(editor);
+    };
+    document.addEventListener('click', nativeSendClickHandler, true);
+
     stageActivateHandler = (e) => {
       const src = e?.detail?.source;
       if (src && src !== 'notion' && state.active) {
@@ -3496,10 +4633,11 @@
           if (dh && !dh.contains(target)) closeDockGripMenu();
         }
       }
-      if (state.chromeMenuMode) {
+      if (state.chromeMenuMode || state.convoPickerOpen) {
         const chrome = document.getElementById(CHROME_ID);
         if (chrome && !chrome.contains(target)) {
           renderChromeDropdownMenu('');
+          closeConvoPicker();
         }
       }
     };
@@ -3514,11 +4652,6 @@
         if (state.currentView !== 'page') {
           state.selectedQuote = '';
           state.homeDockExpanded = false;
-        } else if (state.active && !state.submitting && state.currentPage?.id) {
-          const boundPath = state.pageConvoMap[state.currentPage.id];
-          if (isValidConvoPath(boundPath) && window.location.pathname !== boundPath) {
-            void navigateToSavedNotionConvo(boundPath);
-          }
         }
         updateDockUI();
         syncChatChromeUI();
@@ -3593,6 +4726,8 @@
 
     if (navClickHandler) document.removeEventListener('click', navClickHandler, true);
     if (auxToggleClickHandler) document.removeEventListener('click', auxToggleClickHandler, true);
+    if (nativeKeydownHandler) document.removeEventListener('keydown', nativeKeydownHandler, true);
+    if (nativeSendClickHandler) document.removeEventListener('click', nativeSendClickHandler, true);
     if (docPointerHandler) document.removeEventListener('pointerdown', docPointerHandler);
     if (messageHandler) window.removeEventListener('message', messageHandler);
     if (stageActivateHandler) window.removeEventListener('agy:stage-activate', stageActivateHandler);

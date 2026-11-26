@@ -50,6 +50,7 @@ const DATA_DIR = path.join(resolveAppDataDir(), 'sidecar_data', 'notion');
 const OAUTH_STATE_FILE = path.join(DATA_DIR, 'oauth-state.json');
 const PID_FILE = path.join(DATA_DIR, 'stage_server.json');
 const WORKBENCH_HTML_PATH = path.join(__dirname, 'notion-workbench.html');
+const ASSETS_DIR = path.resolve(__dirname, '..', 'assets');
 const PROJECTS_CONFIG_DIR = path.join(homedir(), '.gemini', 'config', 'projects');
 const DEFAULT_NOTION_PROJECT_ID = 'a8f4c2d1-6b3e-4e9a-8c5f-2b7e9d1a4c60';
 const DEFAULT_NOTION_PROJECT_NAME = 'Notion';
@@ -166,6 +167,155 @@ function ensureNotionAntigravityProject() {
 }
 
 const initialNotionProject = ensureNotionAntigravityProject();
+
+let cachedSqliteModule = undefined;
+async function getSqliteModule() {
+  if (cachedSqliteModule !== undefined) return cachedSqliteModule;
+  try {
+    cachedSqliteModule = await import('node:sqlite');
+  } catch {
+    cachedSqliteModule = null;
+  }
+  return cachedSqliteModule;
+}
+
+function loadPinnedConversationIds() {
+  const candidates = [];
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, 'Antigravity', 'app_storage.json'));
+  }
+  candidates.push(
+    path.join(homedir(), 'AppData', 'Roaming', 'Antigravity', 'app_storage.json'),
+    path.join(homedir(), '.config', 'Antigravity', 'app_storage.json'),
+    path.join(homedir(), 'Library', 'Application Support', 'Antigravity', 'app_storage.json')
+  );
+  for (const file of candidates) {
+    try {
+      if (!existsSync(file)) continue;
+      const st = JSON.parse(readFileSync(file, 'utf8'));
+      const raw = st?.pinned_conversations_order;
+      const arr = typeof raw === 'string' ? JSON.parse(raw) : Array.isArray(raw) ? raw : [];
+      if (Array.isArray(arr)) {
+        return arr.map((x) => String(x || '').trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+  return [];
+}
+
+function extractWorkspaceFolderName(workspaceUrisRaw) {
+  try {
+    const arr = typeof workspaceUrisRaw === 'string' ? JSON.parse(workspaceUrisRaw) : workspaceUrisRaw;
+    const first = Array.isArray(arr) && arr[0] ? decodeURIComponent(String(arr[0])) : '';
+    if (!first) return '';
+    const cleaned = first.replace(/^file:\/\/\/?/i, '').replace(/\/+$/, '');
+    const segs = cleaned.split(/[\\/]/).filter(Boolean);
+    return segs[segs.length - 1] || '';
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeConvoSummaryTitle(rawTitle, rawPreview) {
+  const base = String(rawTitle || rawPreview || '')
+    .replace(/\[Notion Page Context:\s*\{[\s\S]*?\}\]/g, '')
+    .replace(/\[Cowart Workspace Context:\s*\{[\s\S]*?\}\]/g, '')
+    .replace(/我当前选中的笔记片段：[\s\S]*$/g, '')
+    .trim();
+  const firstLine = base.split(/\r?\n/).find((l) => l.trim())?.trim() || '未命名会话';
+  return firstLine.length > 72 ? `${firstLine.slice(0, 72)}…` : firstLine;
+}
+
+async function queryLocalAntigravityConversations({ q = '', limit = 60 } = {}) {
+  const pinnedIds = loadPinnedConversationIds();
+  const pinnedOrderMap = new Map(pinnedIds.map((id, idx) => [id, idx]));
+  const projects = listRegisteredAntigravityProjects();
+  const projectMap = new Map(projects.map((p) => [p.id, p.name]));
+
+  const dbPath = path.join(resolveAppDataDir(), 'conversation_summaries.db');
+  const sqlite = await getSqliteModule();
+  if (!sqlite?.DatabaseSync || !existsSync(dbPath)) {
+    return { pinned: [], recent: [] };
+  }
+
+  let db = null;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { open: true, readOnly: true });
+    const recentRows = db
+      .prepare(
+        `SELECT conversation_id, title, preview, project_id, workspace_uris, last_modified_time
+         FROM conversation_summaries
+         WHERE nesting_depth = 0 AND parent_conversation_id = '' AND killed = 0
+         ORDER BY last_modified_time DESC
+         LIMIT 280`
+      )
+      .all();
+
+    const byId = new Map();
+    for (const r of recentRows) {
+      if (r && r.conversation_id) byId.set(String(r.conversation_id), r);
+    }
+
+    const missingPinned = pinnedIds.filter((id) => !byId.has(id)).slice(0, 50);
+    if (missingPinned.length > 0) {
+      const placeholders = missingPinned.map(() => '?').join(',');
+      const extraRows = db
+        .prepare(
+          `SELECT conversation_id, title, preview, project_id, workspace_uris, last_modified_time
+           FROM conversation_summaries
+           WHERE conversation_id IN (${placeholders}) AND killed = 0`
+        )
+        .all(...missingPinned);
+      for (const r of extraRows) {
+        if (r && r.conversation_id) byId.set(String(r.conversation_id), r);
+      }
+    }
+
+    const keyword = String(q || '').trim().toLowerCase();
+    const pinned = [];
+    const recent = [];
+
+    for (const [id, row] of byId.entries()) {
+      const title = sanitizeConvoSummaryTitle(row.title, row.preview);
+      const projectId = String(row.project_id || '');
+      const projectName = projectMap.get(projectId) || extractWorkspaceFolderName(row.workspace_uris) || '';
+      const isPinned = pinnedOrderMap.has(id);
+
+      if (keyword) {
+        const hay = `${title}\n${projectName}`.toLowerCase();
+        if (!hay.includes(keyword)) continue;
+      }
+
+      const entry = {
+        id,
+        path: `/c/${id}`,
+        title,
+        projectId,
+        projectName,
+        pinned: isPinned,
+        updatedAt: String(row.last_modified_time || ''),
+      };
+
+      if (isPinned) {
+        pinned.push(entry);
+      } else {
+        recent.push(entry);
+      }
+    }
+
+    pinned.sort((a, b) => (pinnedOrderMap.get(a.id) ?? 9999) - (pinnedOrderMap.get(b.id) ?? 9999));
+    return {
+      pinned,
+      recent: recent.slice(0, limit),
+    };
+  } catch (err) {
+    return { pinned: [], recent: [], warning: err?.message || String(err) };
+  } finally {
+    try {
+      db?.close();
+    } catch {}
+  }
+}
 
 class AuthRequiredError extends Error {
   constructor(message = '需要先连接 Notion 账号') {
@@ -1332,7 +1482,7 @@ async function handleApiRequest(req, res, urlObj) {
     return;
   }
 
-  // 1. 静态工作台页面
+  // 1. 静态工作台页面与本地静态资源（KaTeX 样式、脚本与离线数学字体）
   if (req.method === 'GET' && (pathname === '/' || pathname === '/workbench')) {
     if (!existsSync(WORKBENCH_HTML_PATH)) {
       sendHtml(res, 500, '<h1>未找到 notion-workbench.html</h1>');
@@ -1340,6 +1490,35 @@ async function handleApiRequest(req, res, urlObj) {
     }
     const html = readFileSync(WORKBENCH_HTML_PATH, 'utf8');
     sendHtml(res, 200, html);
+    return;
+  }
+
+  if (req.method === 'GET' && pathname.startsWith('/assets/')) {
+    const rel = decodeURIComponent(pathname.slice('/assets/'.length));
+    const targetFile = path.resolve(ASSETS_DIR, rel);
+    if (!targetFile.startsWith(ASSETS_DIR + path.sep) || !existsSync(targetFile)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('not found');
+      return;
+    }
+    const ext = path.extname(targetFile).toLowerCase();
+    const mimeMap = {
+      '.css': 'text/css; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff',
+      '.ttf': 'font/ttf',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+    };
+    const buf = readFileSync(targetFile);
+    res.writeHead(200, {
+      'Content-Type': mimeMap[ext] || 'application/octet-stream',
+      'Cache-Control': 'public, max-age=86400',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(buf);
     return;
   }
 
@@ -1371,6 +1550,15 @@ async function handleApiRequest(req, res, urlObj) {
       projectDir: info.dir,
       knownProjectNames: info.knownProjectNames || [],
     });
+    return;
+  }
+
+  // 2.2 获取本地全量 Antigravity 会话列表（含置顶对话顺序与项目名映射，供右栏「＋」添加会话使用）
+  if (req.method === 'GET' && pathname === '/api/conversations') {
+    const q = (urlObj.searchParams.get('q') || '').trim();
+    const limit = Math.min(120, Math.max(10, Number(urlObj.searchParams.get('limit') || 60)));
+    const data = await queryLocalAntigravityConversations({ q, limit });
+    sendJson(res, 200, { ok: true, ...data });
     return;
   }
 

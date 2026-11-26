@@ -503,7 +503,7 @@ async function runInstall() {
     console.log('  -> 日志解析预检跳过:', err?.message || String(err));
   }
 
-  console.log('\n=== [4/4] 向当前运行中的 Antigravity 窗口热注入 Context Donut & 任务总时长组件 ===');
+  console.log('\n=== [4/4] 向当前运行中的 Antigravity 窗口热注入 Context Donut 甜甜圈组件 ===');
   const scriptContent = fs.readFileSync(
     path.join(PLUGIN_ROOT, 'renderer', 'composer-donut.js'),
     'utf8'
@@ -556,7 +556,7 @@ async function runUninstall() {
     }
   }
 
-  console.log('\n=== [3/3] 清理当前运行窗口中的甜甜圈与任务总时长组件 ===');
+  console.log('\n=== [3/3] 清理当前运行窗口中的甜甜圈组件 ===');
   const cleanupRes = await evaluateScriptInRunningWindows(
     hostPaths?.devToolsPortPath,
     'try { window.__AGY_CONTEXT_DONUT_CLEANUP__ && window.__AGY_CONTEXT_DONUT_CLEANUP__(); window.__AGY_CONTEXT_DONUT_LOCKED__ = false; window.__AGY_CONTEXT_DONUT_INSTALLED__ = false; } catch {}'

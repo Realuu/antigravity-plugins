@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Notion 工作台</title>
+<link rel="stylesheet" href="/assets/katex/katex.min.css" />
+<script src="/assets/katex/katex.min.js"></script>
 <style>
   :root {
     --bg: #ffffff;
@@ -920,10 +922,15 @@
     background: var(--bg-subtle);
     border: 1px solid var(--border);
     text-align: center;
-    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
-    font-size: 16px;
+    font-size: 15.5px;
     overflow-x: auto;
-    white-space: pre-wrap;
+    overflow-y: hidden;
+    white-space: normal;
+  }
+  .blk-equation .katex-display {
+    margin: 2px 0;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
   .blk-img-figure {
     margin: 6px 0;
@@ -1252,11 +1259,11 @@
     cursor: pointer;
   }
   .inline-math {
-    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--bg-subtle);
+    padding: 0 1px;
     font-size: 1.02em;
+  }
+  .inline-math .katex {
+    font-size: 1.03em;
   }
   .math-frac {
     display: inline-flex;
@@ -1896,50 +1903,29 @@
       .replace(/\\([\\`*_{}\[\]()#+\-.!~<>^|$&])/g, '$1');
   }
 
-  // --- 零依赖轻量 LaTeX 数学排版渲染器（支持希腊字母、运算符、分式、根号、上下标） ---
-  const LATEX_SYMBOLS = {
-    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε',
-    zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
-    lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ',
-    tau: 'τ', upsilon: 'υ', phi: 'ϕ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
-    Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ',
-    Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
-    times: '×', cdot: '·', div: '÷', pm: '±', mp: '∓', infty: '∞', partial: '∂',
-    nabla: '∇', sum: '∑', prod: '∏', int: '∫', approx: '≈', sim: '∼', equiv: '≡',
-    neq: '≠', ne: '≠', leq: '≤', le: '≤', geq: '≥', ge: '≥', ll: '≪', gg: '≫',
-    in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', cup: '∪', cap: '∩',
-    forall: '∀', exists: '∃', rightarrow: '→', to: '→', leftarrow: '←',
-    Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔', ldots: '…', cdots: '⋯',
-    quad: '  ', qquad: '    ', ',': ' ', ';': ' ',
-  };
+  // --- 基于本地离线 KaTeX 引擎的完整 LaTeX 数学公式渲染器（支持 \underbrace、\mathcal、\mathbb、矩阵、多行对齐与中文 \text） ---
+  function renderLatexMath(expr, displayMode = false) {
+    const raw = String(expr || '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .trim();
+    if (!raw) return '';
 
-  function renderLatexMath(expr) {
-    let s = escapeHtml(String(expr || '').trim());
-    // 去掉 \left / \right 修饰符
-    s = s.replace(/\\(?:left|right)\b/g, '');
-    // \text{...} / \mathrm{...} / \mathbf{...} / \mathbb{...}
-    s = s.replace(/\\(?:text|mathrm)\{([^{}]+)\}/g, '<span style="font-family:inherit;font-style:normal;">$1</span>');
-    s = s.replace(/\\(?:mathbf|boldsymbol|bm)\{([^{}]+)\}/g, '<strong>$1</strong>');
-    s = s.replace(/\\mathbb\{([^{}]+)\}/g, '<strong>$1</strong>');
-    // \frac{a}{b}（支持最多 2 层）
-    for (let k = 0; k < 2; k++) {
-      s = s.replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, '<span class="math-frac"><span>$1</span><span>$2</span></span>');
+    if (window.katex && typeof window.katex.renderToString === 'function') {
+      try {
+        return window.katex.renderToString(raw, {
+          displayMode: Boolean(displayMode),
+          throwOnError: false,
+          strict: false,
+          output: 'html',
+        });
+      } catch {}
     }
-    // \sqrt{...}
-    s = s.replace(/\\sqrt\{([^{}]+)\}/g, '√($1)');
-    // \hat{x} / \bar{x} / \tilde{x} / \vec{x}
-    s = s.replace(/\\hat\{([^{}]+)\}/g, '$1̂');
-    s = s.replace(/\\bar\{([^{}]+)\}/g, '<span style="text-decoration:overline;">$1</span>');
-    s = s.replace(/\\tilde\{([^{}]+)\}/g, '$1̃');
-    s = s.replace(/\\vec\{([^{}]+)\}/g, '$1⃗');
-    // 希腊字母与常用算符
-    s = s.replace(/\\([A-Za-z]+|[,;])/g, (m, sym) => (sym in LATEX_SYMBOLS ? LATEX_SYMBOLS[sym] : m));
-    // 上下标（优先花括号形式，再处理单字符）
-    s = s.replace(/\^\{([^{}]+)\}/g, '<sup>$1</sup>');
-    s = s.replace(/_\{([^{}]+)\}/g, '<sub>$1</sub>');
-    s = s.replace(/\^([A-Za-z0-9+\-∞])/g, '<sup>$1</sup>');
-    s = s.replace(/_([A-Za-z0-9])/g, '<sub>$1</sub>');
-    return s;
+
+    // 极端离线回退
+    return escapeHtml(raw);
   }
 
   // --- 行内 Markdown + 官方 Notion XML 内联标签完整渲染 ---
@@ -1965,9 +1951,12 @@
     );
     s = s.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code class="inline-code">${escapeHtml(code)}</code>`));
 
-    // 2. 保护并美化渲染行内数学公式 $...$（避免 \$ 被误匹配）
-    s = s.replace(/(?<!\\)\$([^$\n]+?)(?<!\\)\$/g, (_, expr) =>
-      stash(`<span class="inline-math">${renderLatexMath(expr)}</span>`)
+    // 2. 保护并用真实 KaTeX 渲染行内数学公式 $$...$$ 与 $...$（避免 \$ 被误匹配）
+    s = s.replace(/(?<!\\)\$\$([^$\n]+?)(?<!\\)\$\$/g, (_, expr) =>
+      stash(`<span class="inline-math">${renderLatexMath(expr, false)}</span>`)
+    );
+    s = s.replace(/(?<!\\)\$(?!\s)([^$\n]*?\S)(?<!\\)\$/g, (_, expr) =>
+      stash(`<span class="inline-math">${renderLatexMath(expr, false)}</span>`)
     );
 
     // 3. 自闭合内联标签：<date ... />、<mention-date ... />、<link-preview ... />、<mention ... />、<br />
@@ -2150,7 +2139,7 @@
         continue;
       }
 
-      // 2. 块级数学公式 $$ ... $$
+      // 2. 块级数学公式 $$ ... $$（兼容多行围栏与单行独立公式块）
       if (trimmed === '$$') {
         const start = i;
         const eqLines = [];
@@ -2161,6 +2150,12 @@
         }
         if (i < lines.length) i++;
         blocks.push({ type: 'equation', text: eqLines.join('\n').trim(), raw: lines.slice(start, i).join('\n') });
+        continue;
+      }
+      const singleLineEq = trimmed.match(/^\$\$(.+?)\$\$$/);
+      if (singleLineEq && !singleLineEq[1].includes('$$')) {
+        blocks.push({ type: 'equation', text: singleLineEq[1].trim(), raw: line });
+        i++;
         continue;
       }
 
@@ -2523,6 +2518,7 @@
         if (
           !nt ||
           nt === '$$' ||
+          /^\$\$/.test(nt) ||
           /^\s*`{3,}/.test(next) ||
           /^#{1,4}\s+/.test(next) ||
           /^\s*[-*+]\s+/.test(next) ||
@@ -3061,7 +3057,7 @@
           return `
             <div class="block-item ${editable ? 'is-editable' : ''}" data-block-idx="${idx}">
               ${editBtnHtml}
-              <div class="blk-equation ${cCls}" ${dblAttr}>${renderLatexMath(blk.text)}</div>
+              <div class="blk-equation ${cCls}" ${dblAttr}>${renderLatexMath(blk.text, true)}</div>
             </div>
           `;
         }
@@ -4124,6 +4120,8 @@
       } else if (state.view === 'home') {
         void loadHome(true);
       }
+    } else if (data.type === 'AGY_NOTION_OPEN_PAGE' && data.pageId) {
+      void openPage(data.pageId);
     }
   });
 
